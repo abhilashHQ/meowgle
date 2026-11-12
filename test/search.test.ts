@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { SearchProviderError } from '../src/search/types.js';
 import type { Source } from '../src/search/types.js';
 import type { SearchProvider } from '../src/search/types.js';
 import { runSearch } from '../src/search/run.js';
@@ -98,9 +99,9 @@ test('runSearch: caps results at six', async () => {
   );
 });
 
-test('runSearch: times out and retries once', async () => {
+test('runSearch: retries a transient provider failure once', async () => {
   const provider = new FakeSearch(async (_query, attempt) => {
-    if (attempt === 1) return new Promise<RawResult[]>(() => {});
+    if (attempt === 1) throw new SearchProviderError('Exa 503: unavailable', 503);
     return [result('https://retry.com/page', '2026-02-01')];
   });
 
@@ -117,7 +118,7 @@ test('runSearch: times out and retries once', async () => {
   );
 });
 
-test('runSearch: aborts the signal when a provider hangs past the timeout', async () => {
+test('runSearch: stops after one timeout and aborts the provider signal', async () => {
   const provider = new FakeSearch(async () => new Promise<RawResult[]>(() => {}));
 
   const { sources, error } = await runSearch(provider, ['q'], {
@@ -126,11 +127,10 @@ test('runSearch: aborts the signal when a provider hangs past the timeout', asyn
   });
 
   assert.deepEqual(sources, []);
-  assert.ok(error);
-  assert.equal(provider.calls.length, 2);
-  assert.equal(provider.signals.length, 2);
+  assert.match(error ?? '', /timed out/);
+  assert.equal(provider.calls.length, 1);
+  assert.equal(provider.signals.length, 1);
   assert.equal(provider.signals[0].aborted, true);
-  assert.equal(provider.signals[1].aborted, true);
 });
 
 test('runSearch: returns an error only when every query fails', async () => {

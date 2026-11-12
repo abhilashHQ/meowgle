@@ -1,9 +1,30 @@
-import { GoogleGenAI } from '@google/genai';
-import type { LLM } from './types.js';
+import { GoogleGenAI, type ThinkingConfig } from '@google/genai';
+import type {
+  JsonOptions,
+  LLM,
+  LLMStreamPart,
+  Reasoning,
+  StreamOptions,
+} from './types.js';
+import { friendlyError } from '../errors.js';
 
-const JSON_TIMEOUT_MS = 12_000;
-const FIRST_CHUNK_TIMEOUT_MS = 8_000;
-const STREAM_TIMEOUT_MS = 60_000;
+const JSON_TIMEOUT_MS = 30_000;
+const FAST_JSON_TIMEOUT_MS = 8_000;
+const STREAM_TOTAL_MS = 120_000;
+const STREAM_IDLE_MS = 25_000;
+const FIRST_EVENT_MS: Record<Reasoning, number> = {
+  low: 10_000,
+  medium: 15_000,
+  high: 20_000,
+  xhigh: 30_000,
+};
+
+const THINKING_LEVEL: Record<Reasoning, 'low' | 'medium' | 'high'> = {
+  low: 'low',
+  medium: 'medium',
+  high: 'high',
+  xhigh: 'high',
+};
 
 export function createGeminiLLM(
   apiKey: string,
@@ -13,61 +34,110 @@ export function createGeminiLLM(
   const client = new GoogleGenAI({ apiKey, apiVersion: 'v1beta' });
   const modelId = (tier: 'fast' | 'main') => (tier === 'fast' ? models.fast : models.main);
 
-  async function* streamFrom(model: string, system: string, prompt: string) {
+  async function* streamFrom(
+    model: string,
+    o: StreamOptions,
+  ): AsyncGenerator<LLMStreamPart> {
     const controller = new AbortController();
-    const total = setTimeout(() => controller.abort(), STREAM_TIMEOUT_MS);
-    const firstChunk = setTimeout(() => controller.abort(), FIRST_CHUNK_TIMEOUT_MS);
+    const forwardAbort = () => controller.abort();
+    if (o.signal) {
+      if (o.signal.aborted) controller.abort();
+      else o.signal.addEventListener('abort', forwardAbort, { once: true });
+    }
+
+    let timer = setTimeout(
+      () => controller.abort(),
+      o.reasoning ? FIRST_EVENT_MS[o.reasoning] : FIRST_EVENT_MS.medium,
+    );
+    const total = setTimeout(() => controller.abort(), STREAM_TOTAL_MS);
+    const resetIdle = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => controller.abort(), STREAM_IDLE_MS);
+    };
+
     try {
       const response = await client.models.generateContentStream({
         model,
-        contents: prompt,
-        config: { systemInstruction: system, abortSignal: controller.signal },
+        contents: o.prompt,
+        config: {
+          systemInstruction: o.system,
+          abortSignal: controller.signal,
+          ...(o.reasoning
+            ? {
+                thinkingConfig: {
+                  thinkingLevel: THINKING_LEVEL[o.reasoning],
+                  includeThoughts: o.includeThoughts ?? false,
+                } as unknown as ThinkingConfig,
+              }
+            : {}),
+        },
       });
+
       for await (const chunk of response) {
-        clearTimeout(firstChunk);
-        if (chunk.text) yield chunk.text;
+        const parts = chunk.candidates?.[0]?.content?.parts ?? [];
+        for (const part of parts) {
+          if (!part.text) continue;
+          resetIdle();
+          yield { type: part.thought ? 'thought' : 'text', text: part.text };
+        }
       }
     } finally {
+      clearTimeout(timer);
       clearTimeout(total);
-      clearTimeout(firstChunk);
+      o.signal?.removeEventListener('abort', forwardAbort);
     }
   }
 
   return {
-    async json<T>(o: {
-      model: 'fast' | 'main';
-      system: string;
-      prompt: string;
-      schema: object;
-    }): Promise<T> {
-      const response = await client.models.generateContent({
-        model: modelId(o.model),
-        contents: o.prompt,
-        config: {
-          systemInstruction: o.system,
-          responseMimeType: 'application/json',
-          responseJsonSchema: o.schema,
-          abortSignal: AbortSignal.timeout(JSON_TIMEOUT_MS),
-        },
-      });
-      const text = response.text;
-      if (!text) throw new Error('Gemini returned an empty response');
-      return JSON.parse(text) as T;
+    async json<T>(o: JsonOptions): Promise<T> {
+      try {
+        const response = await client.models.generateContent({
+          model: modelId(o.model),
+          contents: o.prompt,
+          config: {
+            systemInstruction: o.system,
+            responseMimeType: 'application/json',
+            responseJsonSchema: o.schema,
+            abortSignal: AbortSignal.timeout(
+              o.timeoutMs ?? (o.model === 'fast' ? FAST_JSON_TIMEOUT_MS : JSON_TIMEOUT_MS),
+            ),
+            ...(o.reasoning
+              ? {
+                  thinkingConfig: {
+                    thinkingLevel: THINKING_LEVEL[o.reasoning],
+                  } as unknown as ThinkingConfig,
+                }
+              : {}),
+          },
+        });
+        const text = response.text;
+        if (!text) throw new Error('Gemini returned an empty response');
+        return JSON.parse(text) as T;
+      } catch (error) {
+        throw new Error(friendlyError(error));
+      }
     },
 
-    // If the main model fails before producing any text (overload, timeout),
+    // If the main model fails before producing answer text (overload, timeout),
     // fall back to the fast model so the user still gets an answer.
-    async *stream(o: { model: 'fast' | 'main'; system: string; prompt: string }) {
-      let yielded = false;
+    async *stream(o: StreamOptions) {
+      let yieldedText = false;
       try {
-        for await (const text of streamFrom(modelId(o.model), o.system, o.prompt)) {
-          yielded = true;
-          yield text;
+        for await (const part of streamFrom(modelId(o.model), o)) {
+          if (part.type === 'text') yieldedText = true;
+          yield part;
         }
       } catch (error) {
-        if (yielded || o.model === 'fast') throw error;
-        console.error(`main model failed before first token, falling back to fast: ${String(error)}`);
-        yield* streamFrom(models.fast, o.system, o.prompt);
+        if (yieldedText || o.model === 'fast' || o.signal?.aborted) throw error;
+        console.error(
+          `main model failed before answer text, falling back to fast: ${friendlyError(error)}`,
+        );
+        yield* streamFrom(models.fast, {
+          ...o,
+          model: 'fast',
+          reasoning: undefined,
+          includeThoughts: false,
+        });
       }
     },
   };

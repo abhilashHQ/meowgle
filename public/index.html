@@ -16,6 +16,7 @@
   --code-bg: #f0f0ee;
   --link: #0b57d0;
   --error: #b3261e;
+  --ok: #1a7f37;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -28,6 +29,7 @@
     --code-bg: #202226;
     --link: #8ab4f8;
     --error: #f2b8b5;
+    --ok: #7ee787;
   }
 }
 * { box-sizing: border-box; }
@@ -73,13 +75,13 @@ select {
 #new-chat:hover { background: var(--user-bg); }
 main { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 16px; }
 .messages {
-  max-width: 760px;
+  max-width: 780px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 22px;
 }
-.msg { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.msg { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .msg.user { align-items: flex-end; }
 .msg.user .content {
   background: var(--user-bg);
@@ -92,8 +94,30 @@ main { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 16px; }
 .msg.assistant .content { max-width: 100%; overflow-wrap: anywhere; }
 .content p { margin: 0 0 10px; }
 .content p:last-child { margin-bottom: 0; }
+.content h1, .content h2, .content h3, .content h4 {
+  margin: 16px 0 8px;
+  line-height: 1.3;
+  font-size: 1.05em;
+}
+.content h1:first-child, .content h2:first-child, .content h3:first-child { margin-top: 0; }
 .content ul, .content ol { margin: 0 0 10px; padding-left: 22px; }
-.content li { margin: 2px 0; }
+.content li { margin: 3px 0; }
+.content blockquote {
+  margin: 0 0 10px;
+  padding: 2px 12px;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
+}
+.content hr { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
+.content pre {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+.content pre code { background: none; border: 0; padding: 0; }
 .content code {
   background: var(--code-bg);
   border: 1px solid var(--border);
@@ -102,43 +126,137 @@ main { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 16px; }
   font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .content a { color: var(--link); }
-sup.cite { font-size: 0.7em; margin-left: 1px; }
+sup.cite { font-size: 0.72em; margin-left: 1px; }
 .cite a { text-decoration: none; }
 .cite.invalid { text-decoration: line-through; color: var(--muted); }
-.trace {
-  font-size: 12px;
+.run {
+  font-size: 13px;
   color: var(--muted);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 6px 10px;
+  border-radius: 10px;
   background: var(--panel);
+  overflow: hidden;
+  transition: border-color 0.2s ease;
 }
-.trace summary { cursor: pointer; }
-.trace-body { display: grid; gap: 6px; padding-top: 8px; }
-.trace-row { display: grid; grid-template-columns: 92px 1fr; gap: 8px; }
-.trace-key { color: var(--muted); }
-.trace-value { color: var(--fg); overflow-wrap: anywhere; }
-.trace-sources { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
-.trace-sources li { overflow-wrap: anywhere; }
-.trace-sources a { color: var(--link); }
+.run.live { border-color: var(--link); }
+.run > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  color: var(--muted);
+  user-select: none;
+}
+.run > summary::-webkit-details-marker { display: none; }
+.run[open] > summary { border-bottom: 1px solid var(--border); }
+.run-summary-title { color: var(--fg); font-weight: 500; }
+.run-summary-meta { margin-left: auto; font-variant-numeric: tabular-nums; }
+.run-body { display: grid; }
+.activity {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 2px 10px;
+  padding: 9px 12px;
+  border-top: 1px solid var(--border);
+}
+.activity:first-child { border-top: 0; }
+.status-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--border);
+}
+.activity[data-status="start"] .status-dot { background: var(--link); animation: pulse 1.1s ease-in-out infinite; }
+.activity[data-status="done"] .status-dot { background: var(--ok); }
+.activity[data-status="error"] .status-dot { background: var(--error); }
+@keyframes pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+.activity-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.activity-title { color: var(--fg); font-weight: 500; overflow-wrap: anywhere; }
+.activity-meta { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.activity-detail { grid-column: 2; color: var(--muted); overflow-wrap: anywhere; margin-top: 2px; }
+.activity-queries { grid-column: 2; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+.query-chip {
+  border: 1px solid var(--border);
+  background: var(--code-bg);
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.thought {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 170px;
+  overflow-y: auto;
+  border-left: 2px solid var(--border);
+  padding: 2px 0 2px 10px;
+  margin-top: 5px;
+  line-height: 1.5;
+}
+.thought-caption { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+.sources-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+}
+.source-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 12px;
+  color: var(--muted);
+  text-decoration: none;
+}
+.source-chip:hover { border-color: var(--link); color: var(--fg); }
+.source-chip .source-id { color: var(--link); font-weight: 600; }
+.source-chip .source-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+.run-foot {
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.run-foot .warn { color: var(--error); }
 .error {
   color: var(--error);
   font-size: 13px;
   border-left: 3px solid var(--error);
   padding-left: 8px;
-  margin-top: 8px;
   overflow-wrap: anywhere;
 }
 .empty { color: var(--muted); text-align: center; padding: 48px 12px; }
 footer {
   border-top: 1px solid var(--border);
   background: var(--panel);
-  padding: 10px 16px;
+  padding: 8px 16px 10px;
   position: sticky;
   bottom: 0;
 }
+.reasoning-hint {
+  max-width: 780px;
+  margin: 0 auto 6px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
 #composer {
-  max-width: 760px;
+  max-width: 780px;
   margin: 0 auto;
   display: flex;
   gap: 8px;
@@ -161,14 +279,19 @@ footer {
   background: var(--fg);
   color: var(--bg);
   padding: 10px 16px;
+  min-width: 74px;
   cursor: pointer;
 }
 #send:disabled { opacity: 0.45; cursor: default; }
-@media (max-width: 480px) {
+#send.stop { background: var(--error); color: var(--panel); }
+@media (max-width: 520px) {
   header { padding: 8px 12px; }
+  .brand { display: none; }
+  .controls { width: 100%; justify-content: space-between; }
   main { padding: 12px; }
   footer { padding: 8px 12px; }
   .msg.user .content { max-width: 92%; }
+  .source-chip .source-name { max-width: 140px; }
 }
 </style>
 </head>
@@ -176,10 +299,11 @@ footer {
 <header>
   <div class="brand">minimi</div>
   <div class="controls">
-    <select id="level" aria-label="Answer level">
-      <option value="auto">auto</option>
-      <option value="instant">instant</option>
-      <option value="quick">quick</option>
+    <select id="reasoning" aria-label="Reasoning level" title="How much the agent thinks and searches">
+      <option value="low">low · fast</option>
+      <option value="medium">medium · balanced</option>
+      <option value="high">high · thorough</option>
+      <option value="xhigh">xhigh · deep</option>
     </select>
     <button id="new-chat" type="button">New chat</button>
   </div>
@@ -188,6 +312,7 @@ footer {
   <div id="messages" class="messages" aria-live="polite"></div>
 </main>
 <footer>
+  <div id="reasoning-hint" class="reasoning-hint"></div>
   <form id="composer">
     <textarea id="input" rows="1" placeholder="Ask something" enterkeyhint="send"></textarea>
     <button id="send" type="submit">Send</button>
@@ -196,14 +321,22 @@ footer {
 <script>
 (function () {
   var STORAGE_KEY = 'minimi.conversationId';
-  var LEVEL_KEY = 'minimi.level';
+  var REASONING_KEY = 'minimi.reasoning';
   var messagesEl = document.getElementById('messages');
   var scroller = document.getElementById('scroller');
   var form = document.getElementById('composer');
   var input = document.getElementById('input');
   var sendButton = document.getElementById('send');
-  var levelSelect = document.getElementById('level');
+  var reasoningSelect = document.getElementById('reasoning');
+  var reasoningHint = document.getElementById('reasoning-hint');
   var newChatButton = document.getElementById('new-chat');
+
+  var HINTS = {
+    low: 'Fast answers, fewer searches. Good for quick facts and chat.',
+    medium: 'Balanced: a short search round, then a concise answer.',
+    high: 'More searches and deeper reading. Good for comparisons and checks.',
+    xhigh: 'Multi-round research with source review. Slower, most thorough.'
+  };
 
   function newId() {
     try {
@@ -219,12 +352,16 @@ footer {
     localStorage.setItem(STORAGE_KEY, conversationId);
   }
 
-  var savedLevel = localStorage.getItem(LEVEL_KEY);
-  if (savedLevel === 'instant' || savedLevel === 'quick' || savedLevel === 'auto') {
-    levelSelect.value = savedLevel;
+  var savedReasoning = localStorage.getItem(REASONING_KEY);
+  reasoningSelect.value = savedReasoning && HINTS[savedReasoning] ? savedReasoning : 'medium';
+
+  function updateHint() {
+    reasoningHint.textContent = HINTS[reasoningSelect.value] || HINTS.medium;
   }
-  levelSelect.addEventListener('change', function () {
-    localStorage.setItem(LEVEL_KEY, levelSelect.value);
+  updateHint();
+  reasoningSelect.addEventListener('change', function () {
+    localStorage.setItem(REASONING_KEY, reasoningSelect.value);
+    updateHint();
   });
 
   var streaming = false;
@@ -232,17 +369,27 @@ footer {
 
   function setStreaming(value) {
     streaming = value;
-    sendButton.disabled = value;
+    sendButton.type = value ? 'button' : 'submit';
+    sendButton.classList.toggle('stop', value);
+    sendButton.textContent = value ? 'Stop' : 'Send';
+  }
+
+  function nearBottom() {
+    return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 140;
   }
 
   function scrollToBottom() {
     scroller.scrollTop = scroller.scrollHeight;
   }
 
+  function maybeScroll() {
+    if (nearBottom()) scrollToBottom();
+  }
+
   function emptyState() {
     var div = document.createElement('div');
     div.className = 'empty';
-    div.textContent = 'Ask something. Memory stays in one place.';
+    div.textContent = 'Ask anything. I will search when it helps.';
     return div;
   }
 
@@ -275,6 +422,7 @@ footer {
     var out = escapeHtml(text);
     out = out.replace(/`([^`]+)`/g, '<code>$1</code>');
     out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    out = out.replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>');
     out = out.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
     out = out.replace(/\[(S\d+(?:\s*,\s*S\d+)*)\]/g, function (match, group) {
       return group.split(/\s*,\s*/).map(function (id) {
@@ -289,6 +437,8 @@ footer {
     var html = [];
     var paragraph = [];
     var list = null;
+    var codeLines = null;
+    var quote = null;
 
     function flushParagraph() {
       if (paragraph.length === 0) return;
@@ -306,13 +456,64 @@ footer {
       list = null;
     }
 
+    function flushQuote() {
+      if (quote === null) return;
+      html.push('<blockquote>' + inlineMarkdown(quote, sources, invalid) + '</blockquote>');
+      quote = null;
+    }
+
+    function flushAll() {
+      flushParagraph();
+      flushList();
+      flushQuote();
+    }
+
     for (var i = 0; i < lines.length; i++) {
-      var trimmed = lines[i].trim();
-      if (!trimmed) {
-        flushParagraph();
-        flushList();
+      var line = lines[i];
+      var trimmed = line.trim();
+
+      if (codeLines !== null) {
+        if (/^```/.test(trimmed)) {
+          html.push('<pre><code>' + escapeHtml(codeLines.join('\n')) + '</code></pre>');
+          codeLines = null;
+        } else {
+          codeLines.push(line);
+        }
         continue;
       }
+      if (/^```/.test(trimmed)) {
+        flushAll();
+        codeLines = [];
+        continue;
+      }
+      if (!trimmed) {
+        flushAll();
+        continue;
+      }
+
+      var heading = /^(#{1,4})\s+(.*)$/.exec(trimmed);
+      if (heading) {
+        flushAll();
+        var level = heading[1].length;
+        html.push('<h' + level + '>' + inlineMarkdown(heading[2], sources, invalid) + '</h' + level + '>');
+        continue;
+      }
+
+      if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+        flushAll();
+        html.push('<hr>');
+        continue;
+      }
+
+      var quoteMatch = /^>\s?(.*)$/.exec(trimmed);
+      if (quoteMatch) {
+        flushParagraph();
+        flushList();
+        quote = quote === null ? quoteMatch[1] : quote + ' ' + quoteMatch[1];
+        continue;
+      }
+      flushQuote();
+
       var bullet = /^[-*]\s+(.*)$/.exec(trimmed);
       var numbered = /^\d+[.)]\s+(.*)$/.exec(trimmed);
       if (bullet || numbered) {
@@ -328,8 +529,11 @@ footer {
       flushList();
       paragraph.push(trimmed);
     }
-    flushParagraph();
-    flushList();
+
+    if (codeLines !== null) {
+      html.push('<pre><code>' + escapeHtml(codeLines.join('\n')) + '</code></pre>');
+    }
+    flushAll();
     return html.join('');
   }
 
@@ -341,137 +545,252 @@ footer {
     }
   }
 
-  function traceRow(key, value) {
-    var row = document.createElement('div');
-    row.className = 'trace-row';
-    var keyEl = document.createElement('span');
-    keyEl.className = 'trace-key';
-    keyEl.textContent = key;
-    var valueEl = document.createElement('span');
-    valueEl.className = 'trace-value';
-    if (value instanceof Node) valueEl.appendChild(value);
-    else valueEl.textContent = value;
-    row.appendChild(keyEl);
-    row.appendChild(valueEl);
+  function formatMs(value) {
+    if (typeof value !== 'number' || !isFinite(value)) return '0 ms';
+    if (value < 1000) return Math.round(value) + ' ms';
+    return (value / 1000).toFixed(1) + 's';
+  }
+
+  var PHASE_LABEL = {
+    recall: 'Memory',
+    plan: 'Plan',
+    search: 'Search',
+    review: 'Review',
+    thinking: 'Thinking',
+    writing: 'Answer'
+  };
+
+  function createRun(state) {
+    var details = document.createElement('details');
+    details.className = 'run live';
+    details.open = true;
+    var summary = document.createElement('summary');
+    var title = document.createElement('span');
+    title.className = 'run-summary-title';
+    title.textContent = 'Working';
+    var meta = document.createElement('span');
+    meta.className = 'run-summary-meta';
+    summary.appendChild(title);
+    summary.appendChild(meta);
+    var body = document.createElement('div');
+    body.className = 'run-body';
+    details.appendChild(summary);
+    details.appendChild(body);
+    details.addEventListener('toggle', function () {
+      state.userToggledRun = true;
+    });
+    state.runHost.appendChild(details);
+    state.runEl = details;
+    state.runBody = body;
+    state.runTitle = title;
+    state.runMeta = meta;
+    state.activityEls = new Map();
+    state.activityOrder = [];
+    state.runStart = Date.now();
+    state.sourcesEl = null;
+    state.footEl = null;
+  }
+
+  function ensureSourcesStrip(state) {
+    if (state.sourcesEl) return state.sourcesEl;
+    var strip = document.createElement('div');
+    strip.className = 'sources-strip';
+    state.runBody.appendChild(strip);
+    state.sourcesEl = strip;
+    return strip;
+  }
+
+  function renderSources(state) {
+    if (!state.sources || state.sources.size === 0) return;
+    var strip = ensureSourcesStrip(state);
+    strip.innerHTML = '';
+    state.sources.forEach(function (source) {
+      var link = document.createElement('a');
+      link.className = 'source-chip';
+      link.href = source.url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.title = source.title || source.url;
+      var id = document.createElement('span');
+      id.className = 'source-id';
+      id.textContent = source.id;
+      var name = document.createElement('span');
+      name.className = 'source-name';
+      name.textContent = domainOf(source.url) || source.title || source.url;
+      link.appendChild(id);
+      link.appendChild(name);
+      strip.appendChild(link);
+    });
+  }
+
+  function activityElement(state, activity) {
+    var row = state.activityEls.get(activity.id);
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'activity';
+      row.setAttribute('data-id', activity.id);
+      var dot = document.createElement('span');
+      dot.className = 'status-dot';
+      var head = document.createElement('div');
+      head.className = 'activity-head';
+      var label = document.createElement('span');
+      label.className = 'activity-title';
+      var meta = document.createElement('span');
+      meta.className = 'activity-meta';
+      head.appendChild(label);
+      head.appendChild(meta);
+      var detail = document.createElement('div');
+      detail.className = 'activity-detail';
+      row.appendChild(dot);
+      row.appendChild(head);
+      row.appendChild(detail);
+      state.runBody.appendChild(row);
+      state.activityEls.set(activity.id, row);
+      state.activityOrder.push(row);
+      row._label = label;
+      row._meta = meta;
+      row._detail = detail;
+    }
+    row.setAttribute('data-status', activity.status);
+    row._label.textContent = activity.title || PHASE_LABEL[activity.phase] || activity.phase;
+    row._meta.textContent = activity.ms !== undefined ? formatMs(activity.ms) : '';
+    row._detail.innerHTML = '';
+    if (activity.detail) row._detail.textContent = activity.detail;
+    var oldChips = row.querySelector('.activity-queries');
+    if (oldChips) oldChips.remove();
+    if (activity.queries && activity.queries.length > 0) {
+      var chips = document.createElement('div');
+      chips.className = 'activity-queries';
+      activity.queries.forEach(function (query) {
+        var chip = document.createElement('span');
+        chip.className = 'query-chip';
+        chip.textContent = query;
+        chips.appendChild(chip);
+      });
+      row.appendChild(chips);
+    }
+    if (state.sourcesEl) state.runBody.appendChild(state.sourcesEl);
+    if (state.footEl) state.runBody.appendChild(state.footEl);
+    if (activity.phase === 'thinking' && state.thoughtText) {
+      var caption = document.createElement('div');
+      caption.className = 'thought-caption';
+      caption.textContent = 'reasoning summary';
+      var thought = document.createElement('div');
+      thought.className = 'thought';
+      thought.textContent = state.thoughtText;
+      row._detail.appendChild(caption);
+      row._detail.appendChild(thought);
+      state.thoughtEl = thought;
+    }
     return row;
   }
 
-  function renderTrace(trace) {
-    var details = document.createElement('details');
-    details.className = 'trace';
-    var summary = document.createElement('summary');
-    summary.textContent = 'Trace';
-    details.appendChild(summary);
-    var body = document.createElement('div');
-    body.className = 'trace-body';
-    var plan = trace.plan || {};
-    var recall = trace.recall || {};
-    var search = trace.search || {};
-    var counts = recall.counts || {};
-
-    body.appendChild(traceRow('level', (plan.level || 'unknown') + (plan.reason ? ' - ' + plan.reason : '')));
-
-    var refs = Array.isArray(recall.dateRefs) ? recall.dateRefs.map(function (ref) {
-      return ref.phrase + ': ' + (ref.start === ref.end ? ref.start : ref.start + ' to ' + ref.end);
-    }) : [];
-    body.appendChild(traceRow('date refs', refs.length ? refs.join('; ') : 'none'));
-
-    body.appendChild(traceRow('recall', (counts.turns || 0) + ' turns (' + (counts.byDate || 0) + ' date groups, ' + (counts.topical || 0) + ' topical, ' + (counts.recent || 0) + ' recent, ' + (counts.claims || 0) + ' claims)'));
-
-    if (Array.isArray(recall.nearby) && recall.nearby.length > 0) {
-      body.appendChild(traceRow('nearby', recall.nearby.map(function (item) {
-        return item.phrase + ' -> ' + item.date;
-      }).join('; ')));
+  function appendThought(state, text) {
+    state.thoughtText = (state.thoughtText || '') + text;
+    if (!state.thoughtEl) {
+      var thinkingRow = state.activityOrder.length > 0 ? state.activityOrder[state.activityOrder.length - 1] : null;
+      if (thinkingRow && thinkingRow.getAttribute('data-id') === 'thinking-answer') {
+        var caption = document.createElement('div');
+        caption.className = 'thought-caption';
+        caption.textContent = 'reasoning summary';
+        var thought = document.createElement('div');
+        thought.className = 'thought';
+        thinkingRow._detail.appendChild(caption);
+        thinkingRow._detail.appendChild(thought);
+        state.thoughtEl = thought;
+      }
     }
+    if (state.thoughtEl) {
+      var follow = state.thoughtEl.scrollHeight - state.thoughtEl.scrollTop - state.thoughtEl.clientHeight < 40;
+      state.thoughtEl.textContent = state.thoughtText;
+      if (follow) state.thoughtEl.scrollTop = state.thoughtEl.scrollHeight;
+    }
+    maybeScroll();
+  }
 
-    var queries = Array.isArray(search.queries) ? search.queries : [];
-    body.appendChild(traceRow('queries', queries.length ? queries.join(' | ') : 'none'));
-
-    if (search.error) body.appendChild(traceRow('search error', String(search.error)));
-
-    var sources = Array.isArray(search.sources) ? search.sources : [];
-    if (sources.length > 0) {
-      var listEl = document.createElement('ul');
-      listEl.className = 'trace-sources';
-      sources.forEach(function (source) {
-        var li = document.createElement('li');
-        var link = document.createElement('a');
-        link.href = source.url;
-        link.target = '_blank';
-        link.rel = 'noopener noreferrer';
-        link.textContent = source.title || source.url;
-        li.appendChild(link);
-        var meta = [domainOf(source.url), source.publishedDate || 'no date'].filter(Boolean).join(', ');
-        li.appendChild(document.createTextNode(' (' + meta + ')'));
-        listEl.appendChild(li);
-      });
-      body.appendChild(traceRow('sources', listEl));
+  function updateRunSummary(state) {
+    if (!state.runEl) return;
+    if (state.doneSummary) {
+      state.runTitle.textContent = state.doneSummary;
+      state.runMeta.textContent = state.doneMeta || '';
+      return;
+    }
+    var running = null;
+    if (state.activityOrder) {
+      for (var i = state.activityOrder.length - 1; i >= 0; i--) {
+        if (state.activityOrder[i].getAttribute('data-status') === 'start') {
+          running = state.activityOrder[i];
+          break;
+        }
+      }
+    }
+    var elapsed = formatMs(Date.now() - state.runStart);
+    if (running) {
+      state.runTitle.textContent = running._label.textContent;
+      state.runMeta.textContent = elapsed;
     } else {
-      body.appendChild(traceRow('sources', 'none'));
+      state.runTitle.textContent = state.stopped ? 'Stopped' : 'Working';
+      state.runMeta.textContent = elapsed;
     }
+  }
 
-    var timings = trace.timings;
-    if (timings) {
-      var timingText = [
-        'recall ' + numberOrZero(timings.recallMs) + ' ms',
-        'plan ' + numberOrZero(timings.planMs) + ' ms',
-        'search ' + numberOrZero(timings.searchMs) + ' ms',
-        'first token ' + numberOrZero(timings.firstTokenMs) + ' ms',
-        'total ' + numberOrZero(timings.totalMs) + ' ms'
-      ].join(' / ');
-      body.appendChild(traceRow('timings', timingText));
+  function finishRun(state, label, meta) {
+    if (state.tick) {
+      clearInterval(state.tick);
+      state.tick = null;
     }
-
-    details.appendChild(body);
-    return details;
+    state.doneSummary = label;
+    state.doneMeta = meta || '';
+    if (state.runEl) {
+      state.runEl.classList.remove('live');
+      if (!state.userToggledRun) state.runEl.open = false;
+      updateRunSummary(state);
+    }
   }
 
-  function numberOrZero(value) {
-    return typeof value === 'number' && isFinite(value) ? value : 0;
-  }
-
-  function addUserMessage(text) {
-    removeEmptyState();
-    var root = document.createElement('div');
-    root.className = 'msg user';
-    var content = document.createElement('div');
-    content.className = 'content';
-    content.textContent = text;
-    root.appendChild(content);
-    messagesEl.appendChild(root);
-    return root;
-  }
-
-  function addAssistantMessage() {
-    removeEmptyState();
-    var root = document.createElement('div');
-    root.className = 'msg assistant';
-    var content = document.createElement('div');
-    content.className = 'content';
-    var traceHost = document.createElement('div');
-    root.appendChild(content);
-    root.appendChild(traceHost);
-    messagesEl.appendChild(root);
-    return {
-      root: root,
-      content: content,
-      traceHost: traceHost,
-      answer: '',
-      sources: new Map(),
-      invalid: new Set(),
-      trace: {},
-      done: false
-    };
+  function renderRunFoot(state) {
+    if (!state.runEl || !state.trace || state.footEl) return;
+    var timings = state.trace.timings;
+    if (!timings) return;
+    var foot = document.createElement('div');
+    foot.className = 'run-foot';
+    var parts = [
+      'memory ' + formatMs(timings.recallMs),
+      'plan ' + formatMs(timings.planMs),
+      'search ' + formatMs(timings.searchMs)
+    ];
+    if (timings.reviewMs) parts.push('review ' + formatMs(timings.reviewMs));
+    parts.push('first token ' + formatMs(timings.firstTokenMs));
+    parts.push('total ' + formatMs(timings.totalMs));
+    parts.forEach(function (part) {
+      var span = document.createElement('span');
+      span.textContent = part;
+      foot.appendChild(span);
+    });
+    var citations = state.trace.citations;
+    if (citations) {
+      var cite = document.createElement('span');
+      var invalid = Array.isArray(citations.invalid) ? citations.invalid.length : 0;
+      cite.textContent = invalid > 0 ? 'citations: ' + invalid + ' unresolved' : 'citations verified';
+      if (invalid > 0) cite.className = 'warn';
+      foot.appendChild(cite);
+    }
+    state.runBody.appendChild(foot);
+    state.footEl = foot;
   }
 
   function renderAnswer(state) {
     state.content.innerHTML = renderMarkdown(state.answer, state.sources, state.invalid);
   }
 
-  function renderTraceInto(state) {
-    if (!state.trace || Object.keys(state.trace).length === 0) return;
-    state.traceHost.innerHTML = '';
-    state.traceHost.appendChild(renderTrace(state.trace));
+  function scheduleAnswerRender(state) {
+    if (state.renderQueued) return;
+    state.renderQueued = true;
+    requestAnimationFrame(function () {
+      state.renderQueued = false;
+      renderAnswer(state);
+      maybeScroll();
+    });
   }
 
   function showError(container, message) {
@@ -483,32 +802,81 @@ footer {
 
   function handleEvent(event, state) {
     if (!event || typeof event !== 'object') return;
+
+    if (event.type === 'activity' && event.activity) {
+      if (!state.runEl) createRun(state);
+      activityElement(state, event.activity);
+      if (event.activity.phase === 'writing' && event.activity.status === 'start') {
+        if (!state.userToggledRun) state.runEl.open = false;
+      }
+      updateRunSummary(state);
+      maybeScroll();
+      return;
+    }
+
+    if (event.type === 'thought' && typeof event.text === 'string') {
+      appendThought(state, event.text);
+      return;
+    }
+
     if (event.type === 'token' && typeof event.text === 'string') {
       state.answer += event.text;
-      renderAnswer(state);
-      scrollToBottom();
-    } else if (event.type === 'sources' && Array.isArray(event.sources)) {
+      scheduleAnswerRender(state);
+      return;
+    }
+
+    if (event.type === 'sources' && Array.isArray(event.sources)) {
       state.sources = new Map();
       event.sources.forEach(function (source) {
         if (source && source.id) state.sources.set(source.id, source);
       });
+      renderSources(state);
       renderAnswer(state);
-    } else if (event.type === 'trace' && typeof event.stage === 'string') {
+      return;
+    }
+
+    if (event.type === 'trace' && typeof event.stage === 'string') {
       state.trace[event.stage] = event.data;
-    } else if (event.type === 'done') {
+      return;
+    }
+
+    if (event.type === 'done') {
       var citations = event.citations || {};
       state.trace.citations = citations;
       state.trace.timings = event.timings;
+      state.trace.reasoning = event.reasoning;
       state.invalid = new Set(Array.isArray(citations.invalid) ? citations.invalid : []);
       state.done = true;
+      if (state.tick) {
+        clearInterval(state.tick);
+        state.tick = null;
+      }
       renderAnswer(state);
-      renderTraceInto(state);
+      renderRunFoot(state);
+      var rounds = typeof event.rounds === 'number' ? event.rounds : 0;
+      var searches = rounds > 1 ? rounds + ' rounds' : '1 search';
+      if (rounds === 0) searches = 'no search';
+      var sourcesCount = state.sources ? state.sources.size : 0;
+      finishRun(
+        state,
+        (event.reasoning || 'medium') + ' reasoning',
+        searches + ' · ' + sourcesCount + ' source' + (sourcesCount === 1 ? '' : 's') + ' · ' + formatMs(event.timings.totalMs)
+      );
       setStreaming(false);
       scrollToBottom();
-    } else if (event.type === 'error') {
+      return;
+    }
+
+    if (event.type === 'error') {
+      if (state.runEl) {
+        state.activityOrder.forEach(function (row) {
+          if (row.getAttribute('data-status') === 'start') row.setAttribute('data-status', 'error');
+        });
+        finishRun(state, 'Something went wrong', '');
+      }
       showError(state.root, typeof event.message === 'string' ? event.message : 'Something went wrong.');
       setStreaming(false);
-      scrollToBottom();
+      maybeScroll();
     }
   }
 
@@ -528,11 +896,62 @@ footer {
     handleEvent(event, state);
   }
 
+  function addUserMessage(text) {
+    removeEmptyState();
+    var root = document.createElement('div');
+    root.className = 'msg user';
+    var content = document.createElement('div');
+    content.className = 'content';
+    content.textContent = text;
+    root.appendChild(content);
+    messagesEl.appendChild(root);
+    return root;
+  }
+
+  function addAssistantMessage() {
+    removeEmptyState();
+    var root = document.createElement('div');
+    root.className = 'msg assistant';
+    var runHost = document.createElement('div');
+    var content = document.createElement('div');
+    content.className = 'content';
+    root.appendChild(runHost);
+    root.appendChild(content);
+    messagesEl.appendChild(root);
+    var state = {
+      root: root,
+      runHost: runHost,
+      content: content,
+      answer: '',
+      sources: new Map(),
+      invalid: new Set(),
+      trace: {},
+      thoughtText: '',
+      thoughtEl: null,
+      done: false,
+      renderQueued: false,
+      userToggledRun: false,
+      activityEls: null,
+      activityOrder: [],
+      tick: null
+    };
+    createRun(state);
+    return state;
+  }
+
+  function startTicker(state) {
+    if (state.tick) clearInterval(state.tick);
+    state.tick = setInterval(function () {
+      updateRunSummary(state);
+    }, 200);
+  }
+
   async function send(message) {
     addUserMessage(message);
     var state = addAssistantMessage();
     setStreaming(true);
     scrollToBottom();
+    startTicker(state);
 
     var controller = new AbortController();
     activeController = controller;
@@ -540,7 +959,7 @@ footer {
       conversationId: conversationId,
       message: message,
       tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-      level: levelSelect.value
+      reasoning: reasoningSelect.value
     };
 
     try {
@@ -570,11 +989,22 @@ footer {
       buffer += decoder.decode();
       if (buffer.trim()) handleFrame(buffer, state);
     } catch (error) {
-      if (error && error.name === 'AbortError') return;
+      if (error && error.name === 'AbortError') {
+        state.stopped = true;
+        finishRun(state, 'Stopped', '');
+        return;
+      }
+      finishRun(state, 'Something went wrong', '');
       showError(state.root, error instanceof Error ? error.message : String(error));
     } finally {
       if (activeController === controller) activeController = null;
-      if (!state.done) renderTraceInto(state);
+      if (state.tick) {
+        clearInterval(state.tick);
+        state.tick = null;
+      }
+      if (!state.done && !state.stopped && state.runEl && state.runEl.classList.contains('live')) {
+        finishRun(state, 'Stopped', '');
+      }
       setStreaming(false);
     }
   }
@@ -591,6 +1021,13 @@ footer {
       event.preventDefault();
       if (typeof form.requestSubmit === 'function') form.requestSubmit();
       else form.dispatchEvent(new Event('submit', { cancelable: true }));
+    }
+  });
+
+  sendButton.addEventListener('click', function (event) {
+    if (streaming) {
+      event.preventDefault();
+      if (activeController) activeController.abort();
     }
   });
 
@@ -615,6 +1052,63 @@ footer {
     autoGrow();
     input.focus();
   });
+
+  function activitiesFromTrace(trace) {
+    if (trace && Array.isArray(trace.activities) && trace.activities.length > 0) {
+      return trace.activities;
+    }
+    var list = [];
+    if (trace && trace.recall) {
+      var counts = trace.recall.counts || {};
+      list.push({
+        id: 'recall',
+        phase: 'recall',
+        status: 'done',
+        title: (counts.turns || 0) > 0 ? 'Found ' + counts.turns + ' related turns' : 'No relevant memory'
+      });
+    }
+    if (trace && trace.plan) {
+      list.push({
+        id: 'plan',
+        phase: 'plan',
+        status: 'done',
+        title: trace.plan.level === 'instant' ? 'No search needed' : 'Search plan ready',
+        detail: trace.plan.reason
+      });
+    }
+    if (trace && trace.search) {
+      var rounds = Array.isArray(trace.search.rounds) ? trace.search.rounds : [{ queries: trace.search.queries, ms: trace.search.ms }];
+      rounds.forEach(function (round, index) {
+        list.push({
+          id: 'search-' + (index + 1),
+          phase: 'search',
+          status: round.error ? 'error' : 'done',
+          title: round.error ? 'Search came back empty' : ((trace.search.sources || []).length + ' sources'),
+          detail: round.error || (round.ms ? formatMs(round.ms) : ''),
+          queries: round.queries || []
+        });
+      });
+    }
+    if (trace && trace.review) {
+      list.push({
+        id: 'review-1',
+        phase: 'review',
+        status: 'done',
+        title: trace.review.enough ? 'Sources look sufficient' : 'Found a gap',
+        detail: (trace.review.gaps || []).join('; ') || trace.review.reason
+      });
+    }
+    if (trace && trace.timings) {
+      list.push({
+        id: 'thinking-answer',
+        phase: 'thinking',
+        status: 'done',
+        title: 'Thought for ' + formatMs(trace.timings.firstTokenMs)
+      });
+      list.push({ id: 'writing', phase: 'writing', status: 'done', title: 'Answer ready' });
+    }
+    return list;
+  }
 
   function addAssistantHistory(turn) {
     var trace = null;
@@ -644,7 +1138,23 @@ footer {
     renderAnswer(state);
     if (trace) {
       state.trace = trace;
-      renderTraceInto(state);
+      var activities = activitiesFromTrace(trace);
+      activities.forEach(function (activity) {
+        activityElement(state, activity);
+      });
+      if (sources.size > 0) renderSources(state);
+      renderRunFoot(state);
+      var timings = trace.timings || {};
+      var rounds = typeof trace.rounds === 'number' ? trace.rounds : 0;
+      var searches = rounds > 1 ? rounds + ' rounds' : '1 search';
+      if (rounds === 0) searches = 'no search';
+      finishRun(
+        state,
+        (trace.reasoning || 'medium') + ' reasoning',
+        searches + ' · ' + sources.size + ' source' + (sources.size === 1 ? '' : 's') + (timings.totalMs ? ' · ' + formatMs(timings.totalMs) : '')
+      );
+    } else {
+      state.runHost.innerHTML = '';
     }
   }
 

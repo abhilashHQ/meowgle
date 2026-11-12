@@ -1,10 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
-import { runTurn } from './agent.js';
+import { runTurn, type AgentEvent } from './agent.js';
 import { now } from './clock.js';
 import { config } from './config.js';
 import { getTurnsByConversation, openDb } from './db.js';
+import { friendlyError } from './errors.js';
+import type { Reasoning } from './llm/types.js';
 import { createGeminiLLM } from './llm/gemini.js';
 import { createExaSearch } from './search/exa.js';
 
@@ -22,6 +24,9 @@ const llm = createGeminiLLM(config.geminiApiKey, {
 });
 const search = createExaSearch(config.exaApiKey);
 const indexPath = join(process.cwd(), 'public', 'index.html');
+const HEARTBEAT_MS = 15_000;
+
+const REASONING_LEVELS = new Set<Reasoning>(['low', 'medium', 'high', 'xhigh']);
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body);
@@ -35,12 +40,19 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
 function readBody(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let data = '';
+    let settled = false;
     req.setEncoding('utf8');
     req.on('data', (chunk: string) => {
+      if (settled) return;
       data += chunk;
-      if (data.length > 1_000_000) reject(new Error('request body too large'));
+      if (data.length > 1_000_000) {
+        settled = true;
+        reject(new Error('request body too large'));
+      }
     });
     req.on('end', () => {
+      if (settled) return;
+      settled = true;
       if (!data.trim()) {
         resolve({});
         return;
@@ -51,8 +63,37 @@ function readBody(req: IncomingMessage): Promise<unknown> {
         reject(error);
       }
     });
-    req.on('error', reject);
+    req.on('error', (error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    });
   });
+}
+
+function writeChunk(res: ServerResponse, chunk: string): Promise<boolean> {
+  if (res.writableEnded || res.destroyed) return Promise.resolve(false);
+  if (res.write(chunk)) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const cleanup = () => {
+      res.off('drain', onDrain);
+      res.off('close', onClose);
+    };
+    const onDrain = () => {
+      cleanup();
+      resolve(true);
+    };
+    const onClose = () => {
+      cleanup();
+      resolve(false);
+    };
+    res.once('drain', onDrain);
+    res.once('close', onClose);
+  });
+}
+
+async function writeEvent(res: ServerResponse, event: AgentEvent): Promise<boolean> {
+  return writeChunk(res, `data: ${JSON.stringify(event)}\n\n`);
 }
 
 const server = createServer(async (req, res) => {
@@ -100,14 +141,19 @@ const server = createServer(async (req, res) => {
         typeof body.conversationId === 'string' ? body.conversationId.trim() : '';
       const message = typeof body.message === 'string' ? body.message.trim() : '';
       const tz = typeof body.tz === 'string' && body.tz.trim() ? body.tz.trim() : 'UTC';
+      const requested = typeof body.reasoning === 'string' ? body.reasoning.trim() : '';
+      const reasoning: Reasoning = REASONING_LEVELS.has(requested as Reasoning)
+        ? (requested as Reasoning)
+        : 'medium';
       const level =
-        body.level === 'instant' || body.level === 'quick' ? body.level : ('auto' as const);
+        body.level === 'instant' || body.level === 'quick' ? body.level : undefined;
 
       if (!conversationId || !message) {
         sendJson(res, 400, { error: 'conversationId and message are required' });
         return;
       }
 
+      req.socket.setNoDelay(true);
       res.writeHead(200, {
         'content-type': 'text/event-stream; charset=utf-8',
         'cache-control': 'no-cache, no-transform',
@@ -115,17 +161,39 @@ const server = createServer(async (req, res) => {
         'x-accel-buffering': 'no',
       });
       res.flushHeaders();
+      await writeChunk(res, 'retry: 3000\n\n: connected\n\n');
 
-      const events = runTurn({ db, llm, search, now }, { conversationId, message, tz, level });
+      const controller = new AbortController();
+      const onClose = () => {
+        if (!res.writableEnded) controller.abort();
+      };
+      res.on('close', onClose);
+      const heartbeat = setInterval(() => {
+        void writeChunk(res, ': keepalive\n\n');
+      }, HEARTBEAT_MS);
+
       try {
+        const events = runTurn(
+          { db, llm, search, now },
+          { conversationId, message, tz, reasoning, level, signal: controller.signal },
+        );
         for await (const event of events) {
-          res.write(`data: ${JSON.stringify(event)}\n\n`);
+          const ok = await writeEvent(res, event);
+          if (!ok) {
+            controller.abort();
+            break;
+          }
         }
       } catch (error) {
-        const text = error instanceof Error ? error.message : String(error);
-        res.write(`data: ${JSON.stringify({ type: 'error', message: text })}\n\n`);
+        if (!controller.signal.aborted) {
+          const text = friendlyError(error);
+          await writeEvent(res, { type: 'error', message: text });
+        }
+      } finally {
+        clearInterval(heartbeat);
+        res.off('close', onClose);
+        if (!res.writableEnded) res.end();
       }
-      res.end();
       return;
     }
 
@@ -133,7 +201,7 @@ const server = createServer(async (req, res) => {
   } catch (error) {
     if (!res.headersSent) {
       sendJson(res, 500, { error: 'internal error' });
-    } else {
+    } else if (!res.writableEnded) {
       res.end();
     }
   }
