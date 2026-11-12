@@ -1,0 +1,675 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>minimi</title>
+<style>
+:root {
+  --bg: #f7f7f6;
+  --panel: #ffffff;
+  --fg: #1d1d1f;
+  --muted: #6b6b70;
+  --border: #e2e2df;
+  --user-bg: #ececea;
+  --code-bg: #f0f0ee;
+  --link: #0b57d0;
+  --error: #b3261e;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111214;
+    --panel: #17181b;
+    --fg: #e8e8e6;
+    --muted: #9a9a9f;
+    --border: #2a2c30;
+    --user-bg: #202226;
+    --code-bg: #202226;
+    --link: #8ab4f8;
+    --error: #f2b8b5;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+}
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.brand { font-weight: 600; letter-spacing: -0.01em; }
+.controls { display: flex; align-items: center; gap: 8px; }
+select, button, textarea { font: inherit; color: inherit; }
+select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+#new-chat {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+#new-chat:hover { background: var(--user-bg); }
+main { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 16px; }
+.messages {
+  max-width: 760px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.msg { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.msg.user { align-items: flex-end; }
+.msg.user .content {
+  background: var(--user-bg);
+  border-radius: 14px 14px 4px 14px;
+  padding: 10px 14px;
+  max-width: 85%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.msg.assistant .content { max-width: 100%; overflow-wrap: anywhere; }
+.content p { margin: 0 0 10px; }
+.content p:last-child { margin-bottom: 0; }
+.content ul, .content ol { margin: 0 0 10px; padding-left: 22px; }
+.content li { margin: 2px 0; }
+.content code {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 4px;
+  font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.content a { color: var(--link); }
+sup.cite { font-size: 0.7em; margin-left: 1px; }
+.cite a { text-decoration: none; }
+.cite.invalid { text-decoration: line-through; color: var(--muted); }
+.trace {
+  font-size: 12px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: var(--panel);
+}
+.trace summary { cursor: pointer; }
+.trace-body { display: grid; gap: 6px; padding-top: 8px; }
+.trace-row { display: grid; grid-template-columns: 92px 1fr; gap: 8px; }
+.trace-key { color: var(--muted); }
+.trace-value { color: var(--fg); overflow-wrap: anywhere; }
+.trace-sources { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.trace-sources li { overflow-wrap: anywhere; }
+.trace-sources a { color: var(--link); }
+.error {
+  color: var(--error);
+  font-size: 13px;
+  border-left: 3px solid var(--error);
+  padding-left: 8px;
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+}
+.empty { color: var(--muted); text-align: center; padding: 48px 12px; }
+footer {
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  padding: 10px 16px;
+  position: sticky;
+  bottom: 0;
+}
+#composer {
+  max-width: 760px;
+  margin: 0 auto;
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+#input {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: 10px;
+  padding: 10px 12px;
+  max-height: 160px;
+}
+#input:focus { outline: 2px solid var(--link); outline-offset: -1px; }
+#send {
+  border: 0;
+  border-radius: 10px;
+  background: var(--fg);
+  color: var(--bg);
+  padding: 10px 16px;
+  cursor: pointer;
+}
+#send:disabled { opacity: 0.45; cursor: default; }
+@media (max-width: 480px) {
+  header { padding: 8px 12px; }
+  main { padding: 12px; }
+  footer { padding: 8px 12px; }
+  .msg.user .content { max-width: 92%; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">minimi</div>
+  <div class="controls">
+    <select id="level" aria-label="Answer level">
+      <option value="auto">auto</option>
+      <option value="instant">instant</option>
+      <option value="quick">quick</option>
+    </select>
+    <button id="new-chat" type="button">New chat</button>
+  </div>
+</header>
+<main id="scroller">
+  <div id="messages" class="messages" aria-live="polite"></div>
+</main>
+<footer>
+  <form id="composer">
+    <textarea id="input" rows="1" placeholder="Ask something" enterkeyhint="send"></textarea>
+    <button id="send" type="submit">Send</button>
+  </form>
+</footer>
+<script>
+(function () {
+  var STORAGE_KEY = 'minimi.conversationId';
+  var LEVEL_KEY = 'minimi.level';
+  var messagesEl = document.getElementById('messages');
+  var scroller = document.getElementById('scroller');
+  var form = document.getElementById('composer');
+  var input = document.getElementById('input');
+  var sendButton = document.getElementById('send');
+  var levelSelect = document.getElementById('level');
+  var newChatButton = document.getElementById('new-chat');
+
+  function newId() {
+    try {
+      return crypto.randomUUID();
+    } catch (error) {
+      return 'c-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+    }
+  }
+
+  var conversationId = localStorage.getItem(STORAGE_KEY);
+  if (!conversationId) {
+    conversationId = newId();
+    localStorage.setItem(STORAGE_KEY, conversationId);
+  }
+
+  var savedLevel = localStorage.getItem(LEVEL_KEY);
+  if (savedLevel === 'instant' || savedLevel === 'quick' || savedLevel === 'auto') {
+    levelSelect.value = savedLevel;
+  }
+  levelSelect.addEventListener('change', function () {
+    localStorage.setItem(LEVEL_KEY, levelSelect.value);
+  });
+
+  var streaming = false;
+  var activeController = null;
+
+  function setStreaming(value) {
+    streaming = value;
+    sendButton.disabled = value;
+  }
+
+  function scrollToBottom() {
+    scroller.scrollTop = scroller.scrollHeight;
+  }
+
+  function emptyState() {
+    var div = document.createElement('div');
+    div.className = 'empty';
+    div.textContent = 'Ask something. Memory stays in one place.';
+    return div;
+  }
+
+  function removeEmptyState() {
+    var empty = messagesEl.querySelector('.empty');
+    if (empty) empty.remove();
+  }
+
+  function escapeHtml(text) {
+    return String(text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function citationHtml(id, sources, invalid) {
+    if (invalid && invalid.has(id)) {
+      return '<sup class="cite invalid" title="Unknown source">' + id + '</sup>';
+    }
+    var source = sources ? sources.get(id) : undefined;
+    if (!source) {
+      return '<sup class="cite" title="Unknown source">' + id + '</sup>';
+    }
+    return '<sup class="cite"><a href="' + escapeHtml(source.url) + '" target="_blank" rel="noopener noreferrer">' + id + '</a></sup>';
+  }
+
+  function inlineMarkdown(text, sources, invalid) {
+    var out = escapeHtml(text);
+    out = out.replace(/`([^`]+)`/g, '<code>$1</code>');
+    out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    out = out.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+    out = out.replace(/\[(S\d+(?:\s*,\s*S\d+)*)\]/g, function (match, group) {
+      return group.split(/\s*,\s*/).map(function (id) {
+        return citationHtml(id, sources, invalid);
+      }).join('');
+    });
+    return out;
+  }
+
+  function renderMarkdown(raw, sources, invalid) {
+    var lines = String(raw || '').split(/\r?\n/);
+    var html = [];
+    var paragraph = [];
+    var list = null;
+
+    function flushParagraph() {
+      if (paragraph.length === 0) return;
+      html.push('<p>' + paragraph.map(function (line) {
+        return inlineMarkdown(line, sources, invalid);
+      }).join('<br>') + '</p>');
+      paragraph = [];
+    }
+
+    function flushList() {
+      if (!list) return;
+      html.push('<' + list.tag + '>' + list.items.map(function (item) {
+        return '<li>' + inlineMarkdown(item, sources, invalid) + '</li>';
+      }).join('') + '</' + list.tag + '>');
+      list = null;
+    }
+
+    for (var i = 0; i < lines.length; i++) {
+      var trimmed = lines[i].trim();
+      if (!trimmed) {
+        flushParagraph();
+        flushList();
+        continue;
+      }
+      var bullet = /^[-*]\s+(.*)$/.exec(trimmed);
+      var numbered = /^\d+[.)]\s+(.*)$/.exec(trimmed);
+      if (bullet || numbered) {
+        flushParagraph();
+        var tag = numbered ? 'ol' : 'ul';
+        if (!list || list.tag !== tag) {
+          flushList();
+          list = { tag: tag, items: [] };
+        }
+        list.items.push((bullet || numbered)[1]);
+        continue;
+      }
+      flushList();
+      paragraph.push(trimmed);
+    }
+    flushParagraph();
+    flushList();
+    return html.join('');
+  }
+
+  function domainOf(url) {
+    try {
+      return new URL(url).hostname.replace(/^www\./, '');
+    } catch (error) {
+      return '';
+    }
+  }
+
+  function traceRow(key, value) {
+    var row = document.createElement('div');
+    row.className = 'trace-row';
+    var keyEl = document.createElement('span');
+    keyEl.className = 'trace-key';
+    keyEl.textContent = key;
+    var valueEl = document.createElement('span');
+    valueEl.className = 'trace-value';
+    if (value instanceof Node) valueEl.appendChild(value);
+    else valueEl.textContent = value;
+    row.appendChild(keyEl);
+    row.appendChild(valueEl);
+    return row;
+  }
+
+  function renderTrace(trace) {
+    var details = document.createElement('details');
+    details.className = 'trace';
+    var summary = document.createElement('summary');
+    summary.textContent = 'Trace';
+    details.appendChild(summary);
+    var body = document.createElement('div');
+    body.className = 'trace-body';
+    var plan = trace.plan || {};
+    var recall = trace.recall || {};
+    var search = trace.search || {};
+    var counts = recall.counts || {};
+
+    body.appendChild(traceRow('level', (plan.level || 'unknown') + (plan.reason ? ' - ' + plan.reason : '')));
+
+    var refs = Array.isArray(recall.dateRefs) ? recall.dateRefs.map(function (ref) {
+      return ref.phrase + ': ' + (ref.start === ref.end ? ref.start : ref.start + ' to ' + ref.end);
+    }) : [];
+    body.appendChild(traceRow('date refs', refs.length ? refs.join('; ') : 'none'));
+
+    body.appendChild(traceRow('recall', (counts.turns || 0) + ' turns (' + (counts.byDate || 0) + ' date groups, ' + (counts.topical || 0) + ' topical, ' + (counts.recent || 0) + ' recent, ' + (counts.claims || 0) + ' claims)'));
+
+    if (Array.isArray(recall.nearby) && recall.nearby.length > 0) {
+      body.appendChild(traceRow('nearby', recall.nearby.map(function (item) {
+        return item.phrase + ' -> ' + item.date;
+      }).join('; ')));
+    }
+
+    var queries = Array.isArray(search.queries) ? search.queries : [];
+    body.appendChild(traceRow('queries', queries.length ? queries.join(' | ') : 'none'));
+
+    if (search.error) body.appendChild(traceRow('search error', String(search.error)));
+
+    var sources = Array.isArray(search.sources) ? search.sources : [];
+    if (sources.length > 0) {
+      var listEl = document.createElement('ul');
+      listEl.className = 'trace-sources';
+      sources.forEach(function (source) {
+        var li = document.createElement('li');
+        var link = document.createElement('a');
+        link.href = source.url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = source.title || source.url;
+        li.appendChild(link);
+        var meta = [domainOf(source.url), source.publishedDate || 'no date'].filter(Boolean).join(', ');
+        li.appendChild(document.createTextNode(' (' + meta + ')'));
+        listEl.appendChild(li);
+      });
+      body.appendChild(traceRow('sources', listEl));
+    } else {
+      body.appendChild(traceRow('sources', 'none'));
+    }
+
+    var timings = trace.timings;
+    if (timings) {
+      var timingText = [
+        'recall ' + numberOrZero(timings.recallMs) + ' ms',
+        'plan ' + numberOrZero(timings.planMs) + ' ms',
+        'search ' + numberOrZero(timings.searchMs) + ' ms',
+        'first token ' + numberOrZero(timings.firstTokenMs) + ' ms',
+        'total ' + numberOrZero(timings.totalMs) + ' ms'
+      ].join(' / ');
+      body.appendChild(traceRow('timings', timingText));
+    }
+
+    details.appendChild(body);
+    return details;
+  }
+
+  function numberOrZero(value) {
+    return typeof value === 'number' && isFinite(value) ? value : 0;
+  }
+
+  function addUserMessage(text) {
+    removeEmptyState();
+    var root = document.createElement('div');
+    root.className = 'msg user';
+    var content = document.createElement('div');
+    content.className = 'content';
+    content.textContent = text;
+    root.appendChild(content);
+    messagesEl.appendChild(root);
+    return root;
+  }
+
+  function addAssistantMessage() {
+    removeEmptyState();
+    var root = document.createElement('div');
+    root.className = 'msg assistant';
+    var content = document.createElement('div');
+    content.className = 'content';
+    var traceHost = document.createElement('div');
+    root.appendChild(content);
+    root.appendChild(traceHost);
+    messagesEl.appendChild(root);
+    return {
+      root: root,
+      content: content,
+      traceHost: traceHost,
+      answer: '',
+      sources: new Map(),
+      invalid: new Set(),
+      trace: {},
+      done: false
+    };
+  }
+
+  function renderAnswer(state) {
+    state.content.innerHTML = renderMarkdown(state.answer, state.sources, state.invalid);
+  }
+
+  function renderTraceInto(state) {
+    if (!state.trace || Object.keys(state.trace).length === 0) return;
+    state.traceHost.innerHTML = '';
+    state.traceHost.appendChild(renderTrace(state.trace));
+  }
+
+  function showError(container, message) {
+    var div = document.createElement('div');
+    div.className = 'error';
+    div.textContent = message;
+    container.appendChild(div);
+  }
+
+  function handleEvent(event, state) {
+    if (!event || typeof event !== 'object') return;
+    if (event.type === 'token' && typeof event.text === 'string') {
+      state.answer += event.text;
+      renderAnswer(state);
+      scrollToBottom();
+    } else if (event.type === 'sources' && Array.isArray(event.sources)) {
+      state.sources = new Map();
+      event.sources.forEach(function (source) {
+        if (source && source.id) state.sources.set(source.id, source);
+      });
+      renderAnswer(state);
+    } else if (event.type === 'trace' && typeof event.stage === 'string') {
+      state.trace[event.stage] = event.data;
+    } else if (event.type === 'done') {
+      var citations = event.citations || {};
+      state.trace.citations = citations;
+      state.trace.timings = event.timings;
+      state.invalid = new Set(Array.isArray(citations.invalid) ? citations.invalid : []);
+      state.done = true;
+      renderAnswer(state);
+      renderTraceInto(state);
+      setStreaming(false);
+      scrollToBottom();
+    } else if (event.type === 'error') {
+      showError(state.root, typeof event.message === 'string' ? event.message : 'Something went wrong.');
+      setStreaming(false);
+      scrollToBottom();
+    }
+  }
+
+  function handleFrame(frame, state) {
+    var data = frame.split('\n').filter(function (line) {
+      return line.indexOf('data:') === 0;
+    }).map(function (line) {
+      return line.slice(5).replace(/^\s/, '');
+    }).join('\n');
+    if (!data) return;
+    var event;
+    try {
+      event = JSON.parse(data);
+    } catch (error) {
+      return;
+    }
+    handleEvent(event, state);
+  }
+
+  async function send(message) {
+    addUserMessage(message);
+    var state = addAssistantMessage();
+    setStreaming(true);
+    scrollToBottom();
+
+    var controller = new AbortController();
+    activeController = controller;
+    var body = {
+      conversationId: conversationId,
+      message: message,
+      tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+      level: levelSelect.value
+    };
+
+    try {
+      var response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+      if (!response.ok || !response.body) {
+        throw new Error('Server returned ' + response.status);
+      }
+      var reader = response.body.getReader();
+      var decoder = new TextDecoder();
+      var buffer = '';
+      while (true) {
+        var chunk = await reader.read();
+        if (chunk.done) break;
+        buffer += decoder.decode(chunk.value, { stream: true });
+        var boundary;
+        while ((boundary = buffer.indexOf('\n\n')) >= 0) {
+          var frame = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          handleFrame(frame, state);
+        }
+      }
+      buffer += decoder.decode();
+      if (buffer.trim()) handleFrame(buffer, state);
+    } catch (error) {
+      if (error && error.name === 'AbortError') return;
+      showError(state.root, error instanceof Error ? error.message : String(error));
+    } finally {
+      if (activeController === controller) activeController = null;
+      if (!state.done) renderTraceInto(state);
+      setStreaming(false);
+    }
+  }
+
+  function autoGrow() {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 160) + 'px';
+  }
+
+  input.addEventListener('input', autoGrow);
+
+  input.addEventListener('keydown', function (event) {
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      if (typeof form.requestSubmit === 'function') form.requestSubmit();
+      else form.dispatchEvent(new Event('submit', { cancelable: true }));
+    }
+  });
+
+  form.addEventListener('submit', function (event) {
+    event.preventDefault();
+    if (streaming) return;
+    var message = input.value.trim();
+    if (!message) return;
+    input.value = '';
+    autoGrow();
+    send(message);
+  });
+
+  newChatButton.addEventListener('click', function () {
+    if (activeController) activeController.abort();
+    conversationId = newId();
+    localStorage.setItem(STORAGE_KEY, conversationId);
+    messagesEl.innerHTML = '';
+    messagesEl.appendChild(emptyState());
+    setStreaming(false);
+    input.value = '';
+    autoGrow();
+    input.focus();
+  });
+
+  function addAssistantHistory(turn) {
+    var trace = null;
+    if (turn.trace_json) {
+      try {
+        trace = JSON.parse(turn.trace_json);
+      } catch (error) {
+        trace = null;
+      }
+    }
+    var sources = new Map();
+    if (trace && trace.search && Array.isArray(trace.search.sources)) {
+      trace.search.sources.forEach(function (source, index) {
+        if (source && source.url) sources.set(source.id || 'S' + (index + 1), source);
+      });
+    }
+    var invalid = new Set();
+    if (trace && trace.citations && Array.isArray(trace.citations.invalid)) {
+      trace.citations.invalid.forEach(function (id) {
+        invalid.add(id);
+      });
+    }
+    var state = addAssistantMessage();
+    state.answer = turn.content || '';
+    state.sources = sources;
+    state.invalid = invalid;
+    renderAnswer(state);
+    if (trace) {
+      state.trace = trace;
+      renderTraceInto(state);
+    }
+  }
+
+  async function loadHistory() {
+    try {
+      var response = await fetch('/api/history?conversationId=' + encodeURIComponent(conversationId));
+      if (!response.ok) return;
+      var turns = await response.json();
+      if (!Array.isArray(turns) || turns.length === 0) return;
+      messagesEl.innerHTML = '';
+      turns.forEach(function (turn) {
+        if (!turn || typeof turn.content !== 'string') return;
+        if (turn.role === 'user') addUserMessage(turn.content);
+        else if (turn.role === 'assistant') addAssistantHistory(turn);
+      });
+      scrollToBottom();
+    } catch (error) {
+      return;
+    }
+  }
+
+  messagesEl.appendChild(emptyState());
+  setStreaming(false);
+  loadHistory();
+})();
+</script>
+</body>
+</html>
