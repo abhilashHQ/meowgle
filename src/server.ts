@@ -20,6 +20,9 @@ const env = (k: string, fallback = '') => process.env[k]?.trim() || fallback;
 for (const k of ['CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR', 'EXA_API_KEY']) {
   if (!env(k)) console.warn(`Missing ${k} in .env, requests will fail.`);
 }
+if (!env('AGENT_API_TOKEN')) {
+  console.warn('AGENT_API_TOKEN is not set: /api is open to anyone who can reach this server.');
+}
 
 // The CLI binary, spawned without a shell. On Windows the npm install puts a
 // .cmd shim on PATH that wraps a native claude.exe; we run the exe directly.

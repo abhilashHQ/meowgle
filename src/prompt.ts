@@ -153,7 +153,8 @@ const MEMORY = lines(
   para(
     `The log at the end lists every question they've asked, in every chat, and when.`,
     `It records what was asked, not what's true.`,
-    `Use it only when they bring up the past.`,
+    `Use it only when they ask about the past.`,
+    `Never bring up what they asked before on your own, not even in small talk.`,
     `People misremember days, so if the log has it on a different day,` +
       ` say so ("You asked that on Mon 9 Nov, not Tuesday") and carry on.`,
     `If nothing matches, say so, and never invent a past question or answer.`,

@@ -774,9 +774,27 @@
         let searches = 0;
         let pages = 0;
         const start = performance.now();
+        const secs = () => ((performance.now() - start) / 1000).toFixed(1);
+
+        // a live clock in the summary, so a quiet stretch never looks frozen
+        let clock;
+        const tick = () => {
+          clearInterval(clock);
+          const show = () => (summary.textContent = `Working… ${Math.floor(secs())}s`);
+          show();
+          clock = setInterval(show, 1000);
+        };
+
+        // a pulsing step from the first moment, replaced by the first real one
+        let placeholder = el('div', 'step active');
+        placeholder.append(el('div', '', 'Thinking…'));
+        steps.append(placeholder);
+        tick();
 
         // ends the previous step and opens a new one
         const step = (text) => {
+          placeholder?.remove();
+          placeholder = null;
           if (active) active.classList.remove('active');
           active = el('div', 'step active');
           active.append(el('div', '', text));
@@ -822,21 +840,23 @@
             if (e.failed) active?.append(el('div', 'sub', `${e.failed} failed to load`));
           },
           finish() {
+            clearInterval(clock);
+            placeholder?.remove();
+            placeholder = null;
             if (active) active.classList.remove('active');
-            const secs = ((performance.now() - start) / 1000).toFixed(1);
             const bits = [];
             if (searches) bits.push(`Searched ${searches === 1 ? 'once' : `${searches} times`}`);
             if (pages) bits.push(`read ${pages} page${pages > 1 ? 's' : ''}`);
             summary.textContent = bits.length
-              ? `${bits.join(', ')} · ${secs}s`
-              : `Thought for ${secs}s`;
+              ? `${bits.join(', ')} · ${secs()}s`
+              : `Thought for ${secs()}s`;
             if (!steps.children.length) d.remove();
             d.open = false;
           },
           resume() {
             if (!d.isConnected) container.before(d);
             d.open = true;
-            summary.textContent = 'Working…';
+            tick();
           },
         };
       }
