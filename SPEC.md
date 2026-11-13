@@ -26,7 +26,7 @@ The author must be able to explain every line in an interview. Small beats cleve
 ```
 CLAUDE_CONFIG_DIR=C:\claude-agent-cfg   # isolated config dir, never the owner's default
 CLAUDE_CODE_OAUTH_TOKEN=                # from `claude setup-token` run with that config dir
-CLAUDE_MODEL=sonnet
+CLAUDE_MODEL=claude-opus-5-5
 CLAUDE_EFFORT=low                       # default when the UI doesn't send one
 CLAUDE_BIN=                             # optional, if claude isn't on PATH
 AGENT_API_TOKEN=                        # when set, /api/* needs it as a Bearer token

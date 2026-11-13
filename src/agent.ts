@@ -236,7 +236,7 @@ export async function* runTurn(
       const step = await run.next();
       if (step.done) {
         const left = budget.toolCalls - toolCalls;
-        return `${step.value}\n\n${toolFooter(now, tz, left, effort, pagesOpened)}`;
+        return `${step.value}\n\n${toolFooter(now, tz, left)}`;
       }
       if (step.value.type === 'open_done') pagesOpened += step.value.ok;
       q.push({ event: step.value });

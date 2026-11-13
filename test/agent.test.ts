@@ -216,7 +216,7 @@ test('runTurn: tool rounds, streamed answer, persistence, live re-open, extracti
   assert.equal(toolResults.length, 2);
   assert.ok(
     toolResults.every((t) =>
-      /\n\n\[Today is Thu 12 Nov 2026\. [12] tool calls? left\. .*never gathered at the end\.\]$/.test(
+      /\n\n\[Today is Thu 12 Nov 2026\. [12] tool calls? left\.\]$/.test(
         t
       )
     )
