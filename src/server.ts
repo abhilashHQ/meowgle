@@ -39,7 +39,7 @@ function claudeBin(): string {
 }
 
 const port = Number(env('PORT', '3000'));
-const db = openDb(env('DB_PATH', 'data/minimi.db'));
+const db = openDb(env('DB_PATH', 'data/meowgle.db'));
 const model = makeClaude({
   bin: claudeBin(),
   model: env('CLAUDE_MODEL', 'claude-opus-5-5'),
@@ -157,4 +157,4 @@ createServer(async (req, res) => {
     if (!res.headersSent) json(res, 500, { error: 'Internal error' });
     else res.end();
   }
-}).listen(port, () => console.log(`minimi on http://localhost:${port}`));
+}).listen(port, () => console.log(`MeowGle on http://localhost:${port}`));

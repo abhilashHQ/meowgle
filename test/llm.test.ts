@@ -7,15 +7,15 @@ const stream = (event: object) => JSON.stringify({ type: 'stream_event', event }
 test('flatten: developer text becomes the system prompt, history a tagged block above the message', () => {
   assert.deepEqual(
     flatten([
-      { role: 'developer', content: 'Be minimi.' },
+      { role: 'developer', content: 'Be MeowGle.' },
       { role: 'user', content: 'neon price?' },
       { role: 'assistant', content: '$19/month.' },
       { role: 'user', content: 'and supabase?' },
     ]),
     {
-      system: 'Be minimi.',
+      system: 'Be MeowGle.',
       prompt:
-        '<earlier_chat>\n<person>\nneon price?\n</person>\n<minimi>\n$19/month.\n</minimi>\n</earlier_chat>\n\nand supabase?',
+        '<earlier_chat>\n<person>\nneon price?\n</person>\n<meowgle>\n$19/month.\n</meowgle>\n</earlier_chat>\n\nand supabase?',
     }
   );
   assert.equal(flatten([{ role: 'user', content: 'hi' }]).prompt, 'hi');

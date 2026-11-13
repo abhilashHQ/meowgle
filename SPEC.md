@@ -1,4 +1,4 @@
-# minimi-agent v3 spec (implementation contract)
+# MeowGle v3 spec (implementation contract)
 
 A chat agent with one capability, web search, and a dated memory of everything it was asked. It is judged on architecture: answers fast, gets things right, good to talk to. It must run with `npm install` then `npm run dev`. TypeScript on Node.
 
@@ -10,7 +10,7 @@ The author must be able to explain every line in an interview. Small beats cleve
 - **Zero runtime dependencies.** Dev deps only: `typescript`, `tsx`, `@types/node`, `prettier`. No web framework, agent framework, LLM SDK, ORM or vector DB.
 - The model is the Claude Code CLI (`claude -p`) on the owner's Claude subscription, spawned as a child process. It must be installed and on PATH (or `CLAUDE_BIN`).
 - Env: load with `process.loadEnvFile()` wrapped in try/catch, so a missing `.env` is fine. No `dotenv`.
-- Storage: built-in `node:sqlite` (`DatabaseSync`). DB file at `data/minimi.db`, gitignored, overridable with `DB_PATH`.
+- Storage: built-in `node:sqlite` (`DatabaseSync`). DB file at `data/meowgle.db`, gitignored, overridable with `DB_PATH`.
 - HTTP: `node:http`. Streaming uses SSE. The UI is one static `public/index.html` with inline JS and CSS and no build step.
 - Exa is called with `fetch` directly. The model is a child process; our tools reach it over MCP served by our own HTTP server.
 - Scripts:
@@ -32,7 +32,7 @@ CLAUDE_BIN=                             # optional, if claude isn't on PATH
 AGENT_API_TOKEN=                        # when set, /api/* needs it as a Bearer token
 EXA_API_KEY=
 PORT=3000
-DB_PATH=data/minimi.db
+DB_PATH=data/meowgle.db
 ```
 
 ## File layout
@@ -84,7 +84,7 @@ Memory is global across conversations because there is a single user. `conversat
 
 ## Tools (the one capability: web search)
 
-The model sees two functions. Both take lists so one call can fan out. The harness runs the items in parallel. The model sees them as `mcp__minimi__web_search` and `mcp__minimi__open_page`.
+The model sees two functions. Both take lists so one call can fan out. The harness runs the items in parallel. The model sees them as `mcp__meowgle__web_search` and `mcp__meowgle__open_page`.
 
 `web_search({ queries: string[] (1-8), since?: "YYYY-MM-DD" })`
 - One Exa `POST /search` per query, run in parallel, `type: "lite"`, `numResults` 6 for 1-2 queries, 4 for 3-5, 3 beyond, `contents: { highlights: true }`.
@@ -126,7 +126,7 @@ Timeouts: 10s per Exa call. Retry once on 5xx or a network error. Never throw ou
 7. Emit `done`.
 8. Fire `extractClaims(turnId)` without awaiting it.
 
-Process: one `claude -p` per turn, timeout by effort (120s / 150s / 300s). Flags: `--strict-mcp-config --setting-sources "" --no-session-persistence --tools "" --allowedTools mcp__minimi__web_search mcp__minimi__open_page --model --effort --thinking-display summarized`. The last one is a hidden flag: `-p` otherwise sends `display: "omitted"`, so thinking blocks stream with empty text and the UI has nothing to show. The `showThinkingSummaries` setting does not help in `-p` mode. Thinking is adaptive, so easy turns and many low-effort turns have none. The system prompt goes in a temp file (`--system-prompt-file`, the ledger can outgrow a Windows command line), the prompt on stdin. Env drops every inherited `CLAUDE*` / `ANTHROPIC*` var and sets `CLAUDE_CONFIG_DIR` and `CLAUDE_CODE_OAUTH_TOKEN`. Working dir is an empty folder under the OS temp dir, outside any project, so no CLAUDE.md is picked up. On Windows the binary is the native `claude.exe` behind npm's `.cmd` shim, spawned without a shell.
+Process: one `claude -p` per turn, timeout by effort (120s / 150s / 300s). Flags: `--strict-mcp-config --setting-sources "" --no-session-persistence --tools "" --allowedTools mcp__meowgle__web_search mcp__meowgle__open_page --model --effort --thinking-display summarized`. The last one is a hidden flag: `-p` otherwise sends `display: "omitted"`, so thinking blocks stream with empty text and the UI has nothing to show. The `showThinkingSummaries` setting does not help in `-p` mode. Thinking is adaptive, so easy turns and many low-effort turns have none. The system prompt goes in a temp file (`--system-prompt-file`, the ledger can outgrow a Windows command line), the prompt on stdin. Env drops every inherited `CLAUDE*` / `ANTHROPIC*` var and sets `CLAUDE_CONFIG_DIR` and `CLAUDE_CODE_OAUTH_TOKEN`. Working dir is an empty folder under the OS temp dir, outside any project, so no CLAUDE.md is picked up. On Windows the binary is the native `claude.exe` behind npm's `.cmd` shim, spawned without a shell.
 
 `--safe-mode` is not used: it disables MCP servers too, which removes our tools.
 
@@ -158,7 +158,7 @@ Other routes:
 
 `buildMessages()` order:
 
-The instructions and ledger go in a `developer` message, which becomes the CLI's system prompt. The CLI takes one user prompt, so chat history is flattened into an `<earlier_chat>` block (`<person>` / `<minimi>` tags) above the current message. The newest earlier reply carries the titles and URLs it cited.
+The instructions and ledger go in a `developer` message, which becomes the CLI's system prompt. The CLI takes one user prompt, so chat history is flattened into an `<earlier_chat>` block (`<person>` / `<meowgle>` tags) above the current message. The newest earlier reply carries the titles and URLs it cited.
 
 1. **System prompt** (static constant). Contains:
    - **Voice:** a sharp, warm friend who knows the topic. Lead with the direct answer. Explain what it means for this person in plain prose. Bullets only for real side-by-side comparisons. No headers in short answers, minimal bold, no "Great question". Match the user's length and tone. Chit-chat gets a short reply with no search.

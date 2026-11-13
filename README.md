@@ -1,4 +1,4 @@
-# minimi
+# MeowGle
 
 A chat agent that searches the web and remembers everything you asked it, with dates.
 
@@ -23,7 +23,7 @@ cp .env.example .env
 
 Fill in `.env`. The two that matter:
 
-- `CLAUDE_CODE_OAUTH_TOKEN`: generate it against an isolated config dir so minimi never touches your own Claude Code setup.
+- `CLAUDE_CODE_OAUTH_TOKEN`: generate it against an isolated config dir so MeowGle never touches your own Claude Code setup.
   ```bash
   cmd /c "set CLAUDE_CONFIG_DIR=C:\claude-agent-cfg&& claude setup-token"
   ```
