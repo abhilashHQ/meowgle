@@ -18,8 +18,7 @@ export type Deps = { db: DatabaseSync; model: Model; tools: Tools; now?: () => D
 
 // A turn gets at most EFFORT[effort].toolCalls tool calls. Past that, tools
 // answer with a note telling the model to wrap up.
-const OUT_OF_TOOLS =
-  'No more lookups this turn. Answer now from what you already have, and say plainly what you could not confirm.';
+const OUT_OF_TOOLS = 'No more lookups this turn. Answer from what you already have.';
 
 export type AgentEvent =
   | { type: 'start'; conversationId: string; turnId: number }
@@ -119,7 +118,8 @@ async function* runTool(
   args: Record<string, unknown>,
   deps: Deps,
   book: Book,
-  known: Set<string>
+  known: Set<string>,
+  pageChars: number
 ): AsyncGenerator<AgentEvent, string> {
   if (name === 'web_search') {
     const queries = strings(args.queries, 8);
@@ -139,7 +139,7 @@ async function* runTool(
     const live = urls.some((u) => known.has(u)); // known URLs get fetched fresh
 
     yield { type: 'open', urls, live };
-    const r = await deps.tools.openPage({ urls, focus }, book, live);
+    const r = await deps.tools.openPage({ urls, focus }, book, live, pageChars);
     yield { type: 'open_done', ok: r.ok, failed: r.failed };
     return r.text;
   }
@@ -228,13 +228,17 @@ export async function* runTurn(
   const stop = new AbortController();
 
   let toolCalls = 0;
+  let pagesOpened = 0;
   const callTool: CallTool = async (name, args) => {
     if (++toolCalls > budget.toolCalls) return OUT_OF_TOOLS;
-    const footer = toolFooter(now, tz, req.message, budget.toolCalls - toolCalls);
-    const run = runTool(name, args, deps, book, known);
+    const run = runTool(name, args, deps, book, known, budget.pageChars);
     for (;;) {
       const step = await run.next();
-      if (step.done) return `${step.value}\n\n${footer}`;
+      if (step.done) {
+        const left = budget.toolCalls - toolCalls;
+        return `${step.value}\n\n${toolFooter(now, tz, left, effort, pagesOpened)}`;
+      }
+      if (step.value.type === 'open_done') pagesOpened += step.value.ok;
       q.push({ event: step.value });
     }
   };
@@ -242,7 +246,7 @@ export async function* runTurn(
   let failure: string | undefined;
   (async () => {
     for await (const ev of model.run(messages, callTool, {
-      effort,
+      effort: budget.cliEffort,
       timeoutMs: budget.timeoutMs,
       signal: stop.signal,
     }))
@@ -255,6 +259,7 @@ export async function* runTurn(
   let sent = 0; // how much of it was streamed already
   let answer = '';
   let cited = new Set<number>();
+  let drained = false; // stays false if the client hung up before the run ended
 
   try {
     for await (const item of q.drain()) {
@@ -283,19 +288,27 @@ export async function* runTurn(
         }
       }
     }
+    drained = true;
   } finally {
     stop.abort(); // the client may have hung up mid-stream
-    // whatever happened above, persist the final answer and its sources
+    // whatever happened above, persist the final answer, its sources and how the turn went
     answer = cleanAnswer(raw, valid()).trim();
     cited = new Set([...answer.matchAll(/\[(\d+)\]/g)].map((m) => Number(m[1])));
+    if (!drained) failure ??= 'The client disconnected.';
+    else if (!answer) failure ??= 'The model returned an empty answer.';
     const sources: Source[] = [...book.values()]
       .filter((s) => cited.has(s.n) || s.opened)
       .map(({ n, url, title, fetched_at }) => ({ n, url, title, fetched_at }));
-    finishTurn(db, turnId, answer, sources);
+    finishTurn(db, turnId, answer, sources, {
+      effort,
+      toolCalls,
+      pagesOpened,
+      ms: Date.now() - started,
+      error: failure,
+    });
   }
 
   // -- 4. send what was not streamed yet, list sources, report failures
-  if (!answer && !failure) failure = 'The model returned an empty answer.';
   if (answer.length > sent) yield { type: 'answer', text: answer.slice(sent) };
 
   const shown = [...book.values()]

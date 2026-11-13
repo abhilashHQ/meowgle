@@ -87,17 +87,17 @@ Memory is global across conversations because there is a single user. `conversat
 The model sees two functions. Both take lists so one call can fan out. The harness runs the items in parallel. The model sees them as `mcp__minimi__web_search` and `mcp__minimi__open_page`.
 
 `web_search({ queries: string[] (1-8), since?: "YYYY-MM-DD" })`
-- One Exa `POST /search` per query, run in parallel, `type: "lite"`, `numResults: 6`, `contents: { highlights: true }`.
+- One Exa `POST /search` per query, run in parallel, `type: "lite"`, `numResults` 6 for 1-2 queries, 4 for 3-5, 3 beyond, `contents: { highlights: true }`.
   - `lite` measured 0.8-1s per call vs 1.6-2.4s for `auto`, at $4 vs $7 per 1k. It searches cached content only, which is fine because freshness comes from `open_page`.
 - `since` maps to `startPublishedDate` as a full ISO string (`2026-11-10T00:00:00.000Z`). Results carry `publishedDate`.
 - Results are deduped by URL across queries.
 - Each result gets a source number `n` that is unique within the turn.
-- Returned to the model as compact text: `[n] title (domain, published YYYY-MM-DD)\n<highlights>`.
+- Returned to the model as compact text: `[n] title (domain, published YYYY-MM-DD)\n<highlights>`. Grouped under a `## Query: "..."` line per query; a repeat URL points back to its number.
 
 `open_page({ urls: string[] (1-5), focus?: string })`
 - One Exa `POST /contents` call.
-- With `focus`: `highlights: { query: focus, maxCharacters: 800 }` only. Without it: `text: { maxCharacters: 6000 }`.
-- **Freshness rule, enforced by the harness:** if any URL appears in any stored turn's `sources`, send `maxAgeHours: 0`. Otherwise omit it.
+- With `focus`: `highlights: { query: focus, maxCharacters: 2000 }` only. Without it: `text: { maxCharacters: 6000 }` (12000 at high effort), with a cut-off marker when the cap is hit.
+- **Freshness rule, enforced by the harness:** if any URL appears in any stored turn's `sources`, send `maxAgeHours: 0`. Otherwise send `maxAgeHours: 24`, so a first-time open never reads a copy older than a day.
 - **Provenance comes from `statuses[]`, never assumed.** Exa can silently serve a cached copy even with `maxAgeHours: 0`; in testing this happened for pipedrive.com. Each page goes back to the model tagged with what actually happened:
   - `[n] title (domain, live)` when `status: success, source: crawled`
   - `[n] title (domain, cached copy)` when `source: cached`
@@ -158,7 +158,7 @@ Other routes:
 
 `buildMessages()` order:
 
-The instructions and ledger go in a `developer` message, which becomes the CLI's system prompt. The CLI takes one user prompt, so chat history is flattened into a transcript (`Person:` / `minimi:`) above the current message.
+The instructions and ledger go in a `developer` message, which becomes the CLI's system prompt. The CLI takes one user prompt, so chat history is flattened into an `<earlier_chat>` block (`<person>` / `<minimi>` tags) above the current message. The newest earlier reply carries the titles and URLs it cited.
 
 1. **System prompt** (static constant). Contains:
    - **Voice:** a sharp, warm friend who knows the topic. Lead with the direct answer. Explain what it means for this person in plain prose. Bullets only for real side-by-side comparisons. No headers in short answers, minimal bold, no "Great question". Match the user's length and tone. Chit-chat gets a short reply with no search.

@@ -192,6 +192,13 @@ test('recent messages: this chat only, no citations, no empty answers, older ans
   const db = openDb(':memory:');
   const a = startTurn(db, { question: 'q1', tz: 'UTC', askedAt: '2026-11-10T08:32:00.000Z' });
   finishTurn(db, a.turnId, `long ${'x'.repeat(400)} [1].`, []);
+  const s = startTurn(db, {
+    conversationId: a.conversationId,
+    question: 'q1b',
+    tz: 'UTC',
+    askedAt: '2026-11-10T08:32:30.000Z',
+  });
+  finishTurn(db, s.turnId, `First sentence [1]. ${'z'.repeat(150)}. ${'w'.repeat(300)}`, []);
   const empty = startTurn(db, {
     conversationId: a.conversationId,
     question: 'q2',
@@ -205,7 +212,14 @@ test('recent messages: this chat only, no citations, no empty answers, older ans
     tz: 'UTC',
     askedAt: '2026-11-10T08:34:00.000Z',
   });
-  finishTurn(db, b.turnId, `newest ${'y'.repeat(400)} [2].`, []);
+  finishTurn(db, b.turnId, `newest ${'y'.repeat(400)} [2].`, [
+    {
+      n: 2,
+      url: 'https://neon.com/pricing',
+      title: 'Neon pricing',
+      fetched_at: '2026-11-10T08:34:00.000Z',
+    },
+  ]);
   const other = startTurn(db, {
     question: 'other chat',
     tz: 'UTC',
@@ -215,8 +229,13 @@ test('recent messages: this chat only, no citations, no empty answers, older ans
   const msgs = recentMessages(db, a.conversationId);
   assert.deepEqual(
     msgs.map((m) => m.content.slice(0, 6)),
-    ['q1', 'long x', 'q3', 'newest']
+    ['q1', 'long x', 'q1b', 'First ', 'q3', 'newest']
   );
-  assert.equal(msgs[1].content.length, 301);
-  assert.ok(msgs[3].content.endsWith('y .'));
+  assert.ok(msgs[1].content.endsWith(' [rest of this reply cut]'));
+  assert.equal(msgs[3].content, `First sentence. ${'z'.repeat(150)}. [rest of this reply cut]`);
+  assert.ok(
+    msgs[5].content.endsWith(
+      'y.\n\n[Pages behind this reply: Neon pricing (https://neon.com/pricing)]'
+    )
+  );
 });

@@ -4,7 +4,7 @@ import { flatten, parseLine } from '../src/llm.ts';
 
 const stream = (event: object) => JSON.stringify({ type: 'stream_event', event });
 
-test('flatten: developer text becomes the system prompt, history a transcript above the message', () => {
+test('flatten: developer text becomes the system prompt, history a tagged block above the message', () => {
   assert.deepEqual(
     flatten([
       { role: 'developer', content: 'Be minimi.' },
@@ -15,7 +15,7 @@ test('flatten: developer text becomes the system prompt, history a transcript ab
     {
       system: 'Be minimi.',
       prompt:
-        'Earlier in this chat:\n\nPerson: neon price?\n\nminimi: $19/month.\n\n---\n\nand supabase?',
+        '<earlier_chat>\n<person>\nneon price?\n</person>\n<minimi>\n$19/month.\n</minimi>\n</earlier_chat>\n\nand supabase?',
     }
   );
   assert.equal(flatten([{ role: 'user', content: 'hi' }]).prompt, 'hi');

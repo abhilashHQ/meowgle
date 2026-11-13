@@ -210,21 +210,36 @@ test('runTurn: tool rounds, streamed answer, persistence, live re-open, extracti
   );
   assert.match(
     tail,
-    /Saved findings[\s\S]*- Neon \| Launch price: \$19\/month \(as of 10 Nov, https:\/\/neon\.com\/pricing\)\n\nIs that still right\?\n\n\(Reply to this message only/
+    /Saved findings[\s\S]*- Neon \| Launch price: \$19\/month \(as of 10 Nov, https:\/\/neon\.com\/pricing\)\n\nIs that still right\?\n\n\[Note from the app, not from them\./
   );
   const { toolResults } = runs[0];
   assert.equal(toolResults.length, 2);
-  assert.ok(toolResults.every((t) => t.endsWith('Reply only to: "Is that still right?".)')));
+  assert.ok(
+    toolResults.every((t) =>
+      /\n\n\[Today is Thu 12 Nov 2026\. [12] tool calls? left\. .*never gathered at the end\.\]$/.test(
+        t
+      )
+    )
+  );
   assert.match(
     toolResults[0],
-    /^\[1\] Neon pricing \(neon\.com, live\)[\s\S]*\(Today is Thu 12 Nov 2026\./
+    /^\[1\] Neon pricing \(neon\.com, live\)[\s\S]*\[Today is Thu 12 Nov 2026\./
   );
 
-  const row = db.prepare('SELECT answer, sources FROM turns WHERE id = 2').get() as {
+  const row = db
+    .prepare(
+      'SELECT answer, sources, effort, tool_calls, pages_opened, error FROM turns WHERE id = 2'
+    )
+    .get() as {
     answer: string;
     sources: string;
+    effort: string;
+    tool_calls: number;
+    pages_opened: number;
+    error: string | null;
   };
   assert.equal(row.answer, answer);
+  assert.deepEqual([row.effort, row.tool_calls, row.pages_opened, row.error], ['low', 2, 1, null]);
   assert.deepEqual(
     JSON.parse(row.sources).map((s: any) => s.url),
     ['https://neon.com/pricing', 'https://neon.com/blog/news']
@@ -247,11 +262,11 @@ test('refersToPast: catches questions about history, ignores small talk and fres
     'have i ever asked about neon?',
     'what were my questions this week',
     'is that price still right?',
-    'anything new since monday',
+    'is that cursor price you gave me still right',
     'remember the laptop thing?',
     'what did you tell me in our last chat',
     'what have i been curious about lately',
-    'this week',
+    'what was i asking about on tuesday',
   ])
     assert.ok(refersToPast(q), q);
   for (const q of [
@@ -260,6 +275,12 @@ test('refersToPast: catches questions about history, ignores small talk and fres
     'hey whats up',
     'how much is cursor pro',
     'kobo or kindle for library books?',
+    'anything new from anthropic since monday',
+    'is pichai still ceo of google',
+    'what happened last week in ai',
+    'what did nvidia announce yesterday',
+    'how long ago did python 3.12 come out',
+    'what changed on 12 nov',
   ])
     assert.ok(!refersToPast(q), q);
 });
@@ -306,11 +327,14 @@ test('runTurn: tool calls past the budget are refused and effort reaches the mod
     events.push(e);
   assert.equal(runs[0].effort, 'medium');
   assert.equal(events.filter((e) => e.type === 'search').length, 6);
-  assert.match(runs[0].toolResults[4], /1 lookup left\./);
-  assert.match(runs[0].toolResults[5], /That was your last lookup/);
+  assert.match(runs[0].toolResults[4], /1 tool call left\./);
+  assert.match(runs[0].toolResults[5], /That was your last tool call/);
   assert.match(runs[0].toolResults[6], /^No more lookups this turn/);
   assert.match(runs[0].toolResults[7], /^No more lookups this turn/);
-  assert.match(runs[0].messages.at(-1)!.content, /Effort is medium[\s\S]*up to 6 lookups/);
+  assert.match(
+    runs[0].messages.at(-1)!.content,
+    /Effort is medium[\s\S]*You have 6 tool calls at most/
+  );
   assert.equal(events.at(-1)?.type, 'done');
 });
 

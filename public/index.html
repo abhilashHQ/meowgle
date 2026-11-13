@@ -4,19 +4,35 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>minimi</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css"
+    />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <style>
       :root {
-        --bg: #fbfaf8;
-        --panel: #f3f1ed;
-        --text: #1d1c1a;
-        --muted: #75716a;
-        --faint: #a8a39a;
-        --line: #e7e3dc;
-        --accent: #3a5bc7;
-        --q: #efece6;
+        color-scheme: light;
+        --bg: #ffffff;
+        --text: #1f1b18;
+        --muted: #7a7068;
+        --faint: #b0a69c;
+        --line: #efe9e3;
+        --soft: #f7f2ed;
+        --peach: #f4a67a;
+        --peach-deep: #ea7a43;
+        --peach-wash: rgba(255, 226, 205, 0.5);
+        --accent: #b4531f;
         --err: #b3261e;
-        --sans: ui-sans-serif, -apple-system, 'Segoe UI', Inter, Roboto, sans-serif;
-        --mono: ui-monospace, 'SF Mono', Consolas, monospace;
+        --sans: 'Inter', ui-sans-serif, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Consolas, monospace;
       }
       * {
         box-sizing: border-box;
@@ -25,71 +41,166 @@
       body {
         margin: 0;
         height: 100%;
+        overflow: hidden;
       }
       body {
         background: var(--bg);
         color: var(--text);
-        font: 15.5px/1.6 var(--sans);
+        font: 15.5px/1.65 var(--sans);
         display: flex;
+        -webkit-font-smoothing: antialiased;
       }
       button {
         font: inherit;
         cursor: pointer;
       }
+      svg {
+        display: block;
+      }
 
+      /* ---------- frosted peach sidebar ---------- */
+      .glow {
+        position: fixed;
+        inset: 0 auto 0 0;
+        width: 264px;
+        overflow: hidden;
+        background: linear-gradient(180deg, #fff6ef 0%, #ffeee2 100%);
+      }
+      .orb {
+        position: absolute;
+        border-radius: 50%;
+      }
+      .orb.a {
+        width: 190px;
+        height: 190px;
+        left: -50px;
+        top: -40px;
+        background: #ffc9a3;
+      }
+      .orb.b {
+        width: 150px;
+        height: 150px;
+        right: -50px;
+        top: 38%;
+        background: #ffd9bf;
+      }
+      .orb.c {
+        width: 210px;
+        height: 210px;
+        left: -30px;
+        bottom: -70px;
+        background: #ffb98f;
+      }
       aside {
-        width: 248px;
+        position: relative;
+        z-index: 1;
+        width: 264px;
+        height: 100%;
         flex-shrink: 0;
-        border-right: 1px solid var(--line);
-        background: var(--panel);
+        background: rgba(255, 244, 235, 0.55);
+        -webkit-backdrop-filter: blur(34px) saturate(1.5);
+        backdrop-filter: blur(34px) saturate(1.5);
+        border-right: 1px solid rgba(234, 150, 100, 0.2);
+        box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.6);
         display: flex;
         flex-direction: column;
-        padding: 14px 10px;
+        padding: 18px 10px 10px;
         gap: 10px;
+        overflow: hidden;
+      }
+      .brand,
+      #new,
+      #convs a {
+        padding-left: 12px;
+        padding-right: 12px;
+        font-size: 14.5px;
+        line-height: 20px;
       }
       .brand {
-        font-weight: 650;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        font-weight: 600;
         letter-spacing: -0.01em;
-        padding: 2px 8px 6px;
+        padding-top: 2px;
+        padding-bottom: 8px;
+      }
+      .brand i {
+        width: 16px;
+        height: 16px;
+        border-radius: 5px;
+        background: linear-gradient(135deg, var(--peach), var(--peach-deep));
+        box-shadow: 0 2px 6px rgba(234, 122, 67, 0.35);
       }
       #new {
-        border: 1px solid var(--line);
-        background: var(--bg);
-        border-radius: 8px;
-        padding: 7px 10px;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        border: 0;
+        background: rgba(255, 255, 255, 0.6);
+        border-radius: 10px;
+        padding-top: 9px;
+        padding-bottom: 9px;
         text-align: left;
         color: var(--text);
+        font-weight: 500;
+        box-shadow:
+          0 0 0 1px rgba(255, 255, 255, 0.8),
+          0 1px 2px rgba(180, 90, 40, 0.08);
+        transition:
+          background 0.15s,
+          box-shadow 0.15s;
+      }
+      #new svg {
+        width: 16px;
+        height: 16px;
       }
       #new:hover {
-        border-color: var(--faint);
+        background: rgba(255, 255, 255, 0.9);
+        box-shadow:
+          0 0 0 1px rgba(255, 255, 255, 0.9),
+          0 2px 8px rgba(180, 90, 40, 0.12);
       }
       #convs {
+        flex: 1;
+        min-height: 0;
         overflow-y: auto;
         display: flex;
         flex-direction: column;
-        gap: 1px;
+        gap: 2px;
+        margin: 0 -4px;
+        padding: 3px 4px 8px;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(180, 110, 70, 0.3) transparent;
       }
       #convs a {
         display: block;
-        padding: 6px 8px;
-        border-radius: 6px;
-        color: var(--muted);
+        flex-shrink: 0;
+        padding-top: 7px;
+        padding-bottom: 7px;
+        border-radius: 8px;
+        color: #6b5d52;
         text-decoration: none;
-        font-size: 14px;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        transition: background 0.12s;
       }
       #convs a:hover {
-        background: var(--q);
+        background: rgba(255, 255, 255, 0.5);
         color: var(--text);
       }
       #convs a.on {
-        background: var(--q);
+        background: rgba(255, 255, 255, 0.85);
         color: var(--text);
+        box-shadow: 0 1px 3px rgba(180, 90, 40, 0.1);
       }
 
+      /* ---------- main (stays white) ---------- */
       main {
+        position: relative;
+        z-index: 1;
+        background: var(--bg);
         flex: 1;
         display: flex;
         flex-direction: column;
@@ -103,7 +214,7 @@
       #thread {
         max-width: 740px;
         margin: 0 auto;
-        padding: 32px 20px 24px;
+        padding: 36px 20px 24px;
       }
       .empty {
         margin-top: 22vh;
@@ -111,20 +222,20 @@
         color: var(--muted);
       }
       .empty h1 {
-        font-size: 26px;
+        font-size: 28px;
         font-weight: 600;
         color: var(--text);
-        letter-spacing: -0.02em;
-        margin: 0 0 6px;
+        letter-spacing: -0.03em;
+        margin: 0 0 8px;
       }
 
       .turn {
-        margin-bottom: 36px;
+        margin-bottom: 38px;
       }
       .q {
-        background: var(--q);
-        border-radius: 14px;
-        padding: 10px 15px;
+        background: var(--soft);
+        border-radius: 18px;
+        padding: 10px 16px;
         margin-left: auto;
         width: fit-content;
         max-width: 85%;
@@ -135,72 +246,88 @@
         font-size: 12px;
         color: var(--faint);
         text-align: right;
-        margin: 4px 4px 14px;
+        margin: 5px 4px 14px;
       }
 
       details.trail {
-        margin: 0 0 10px;
+        margin: 0 0 14px;
         color: var(--muted);
-        font-size: 13.5px;
+        font-size: 15px;
+        line-height: 1.6;
       }
-      details.trail > summary {
+      details.trail > summary,
+      .step details > summary {
         cursor: pointer;
         list-style: none;
         display: inline-flex;
         align-items: center;
         gap: 6px;
+        font-weight: 500;
         user-select: none;
       }
-      details.trail > summary::-webkit-details-marker {
+      details.trail > summary::-webkit-details-marker,
+      .step details > summary::-webkit-details-marker {
         display: none;
       }
-      details.trail > summary::after {
+      details.trail > summary::after,
+      .step details > summary::after {
         content: '›';
-        font-size: 15px;
+        font-size: 19px;
+        line-height: 1;
+        color: var(--faint);
         transition: transform 0.15s;
       }
-      details.trail[open] > summary::after {
+      details.trail[open] > summary::after,
+      .step details[open] > summary::after {
         transform: rotate(90deg);
       }
       .steps {
-        margin: 8px 0 0 3px;
-        border-left: 1px solid var(--line);
-        padding-left: 14px;
+        margin-top: 8px;
         display: flex;
         flex-direction: column;
-        gap: 6px;
+        gap: 8px;
       }
-      .step {
-        position: relative;
+      .step .line {
+        color: var(--muted);
       }
-      .step::before {
-        content: '';
-        position: absolute;
-        left: -18px;
-        top: 8px;
-        width: 7px;
-        height: 7px;
-        border-radius: 50%;
-        background: var(--faint);
-      }
-      .step.active::before {
-        background: var(--accent);
-        animation: pulse 1s ease-in-out infinite;
+      .step .verb {
+        font-weight: 500;
+        margin-right: 6px;
       }
       .step .sub {
         color: var(--faint);
-        font-size: 12.5px;
-      }
-      .step details summary {
-        cursor: pointer;
+        font-size: 14.5px;
       }
       .step pre {
         white-space: pre-wrap;
-        font: 12.5px/1.5 var(--sans);
-        color: var(--faint);
-        margin: 4px 0 0;
-        max-height: 220px;
+        font: 15px/1.65 var(--sans);
+        color: var(--muted);
+        margin: 6px 0 0;
+        max-height: 300px;
         overflow-y: auto;
+      }
+      .shimmer {
+        background: linear-gradient(
+          90deg,
+          #7a7068 0%,
+          #7a7068 38%,
+          #ea7a43 50%,
+          #7a7068 62%,
+          #7a7068 100%
+        );
+        background-size: 260% 100%;
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+        animation: shine 1.8s linear infinite;
+      }
+      @keyframes shine {
+        from {
+          background-position: 100% 0;
+        }
+        to {
+          background-position: -100% 0;
+        }
       }
       @keyframes pulse {
         50% {
@@ -208,6 +335,7 @@
         }
       }
 
+      /* ---------- answer ---------- */
       .a {
         word-wrap: break-word;
       }
@@ -218,7 +346,7 @@
       .a ul,
       .a ol,
       .a table,
-      .a pre {
+      .a blockquote {
         margin: 0 0 12px;
       }
       .a ul,
@@ -228,26 +356,82 @@
       .a li {
         margin: 3px 0;
       }
+      .a li > ul,
+      .a li > ol {
+        margin: 3px 0 0;
+      }
+      .a h1,
+      .a h2,
       .a h3,
       .a h4 {
-        font-size: 15.5px;
-        margin: 18px 0 6px;
+        font-size: 16px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        margin: 20px 0 6px;
+      }
+      .a blockquote {
+        border-left: 3px solid var(--peach);
+        padding: 2px 0 2px 14px;
+        color: var(--muted);
+      }
+      .a hr {
+        border: 0;
+        border-top: 1px solid var(--line);
+        margin: 18px 0;
       }
       .a code {
-        font: 13.5px var(--mono);
-        background: var(--q);
-        padding: 1px 5px;
-        border-radius: 4px;
+        font: 13px var(--mono);
+        background: #f8f1ea;
+        padding: 1px 6px;
+        border-radius: 5px;
       }
-      .a pre {
-        background: var(--q);
-        padding: 12px;
-        border-radius: 8px;
+      .codeblock {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        overflow: hidden;
+        margin: 0 0 14px;
+        background: #fdfbf9;
+      }
+      .codehead {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 5px 6px 5px 14px;
+        background: #f9f4ef;
+        border-bottom: 1px solid var(--line);
+        font: 12px var(--mono);
+        color: var(--muted);
+      }
+      .codeblock pre {
+        margin: 0;
+        padding: 12px 14px;
         overflow-x: auto;
+        background: none;
       }
-      .a pre code {
+      .a .codeblock code,
+      .a .codeblock code.hljs {
         background: none;
         padding: 0;
+        font: 13px/1.6 var(--mono);
+      }
+      .ghost {
+        border: 0;
+        background: transparent;
+        color: var(--muted);
+        font: 500 12.5px var(--sans);
+        padding: 4px 9px;
+        border-radius: 7px;
+        transition:
+          background 0.12s,
+          color 0.12s;
+      }
+      .ghost:hover:not(:disabled) {
+        background: rgba(244, 166, 122, 0.18);
+        color: var(--text);
+      }
+      .ghost:disabled {
+        opacity: 0.45;
+        cursor: default;
       }
       .a a {
         color: var(--accent);
@@ -277,25 +461,26 @@
         line-height: 0;
         margin-left: 1px;
       }
-      sup.cite a {
+      .a sup.cite a {
         display: inline-block;
         min-width: 16px;
         padding: 0 4px;
         border-radius: 8px;
-        background: var(--q);
-        color: var(--muted) !important;
+        background: #fbeee4;
+        color: var(--accent);
         text-align: center;
       }
-      sup.cite a:hover {
-        background: var(--line);
-        text-decoration: none !important;
+      .a sup.cite a:hover {
+        background: #f8dcc7;
+        text-decoration: none;
       }
       .cursor::after {
         content: '';
         display: inline-block;
         width: 7px;
         height: 15px;
-        background: var(--faint);
+        background: var(--peach);
+        border-radius: 2px;
         margin-left: 2px;
         vertical-align: -2px;
         animation: pulse 1s infinite;
@@ -331,21 +516,18 @@
       }
       .sources img {
         flex-shrink: 0;
+        width: 14px;
+        height: 14px;
+        border-radius: 3px;
       }
       .sources button {
         padding: 4px 9px;
-        cursor: pointer;
         white-space: nowrap;
       }
       .sources a:hover,
       .sources button:hover {
-        border-color: var(--faint);
+        border-color: var(--peach);
         color: var(--text);
-      }
-      .sources img {
-        width: 14px;
-        height: 14px;
-        border-radius: 3px;
       }
       .sources span {
         white-space: nowrap;
@@ -356,89 +538,153 @@
         font-weight: 500;
         color: var(--faint);
       }
+      .actions {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        margin: 8px 0 0 -9px;
+      }
+      .actions .meta {
+        margin: 0 0 0 auto;
+        color: var(--faint);
+        font-size: 12px;
+      }
       .error {
         color: var(--err);
         font-size: 14px;
         margin-top: 8px;
       }
-      .meta {
-        color: var(--faint);
-        font-size: 12px;
-        margin-top: 8px;
-      }
 
+      /* ---------- composer ---------- */
       form {
         max-width: 740px;
         width: 100%;
         margin: 0 auto;
-        padding: 0 20px 20px;
+        padding: 0 20px 22px;
       }
       .box {
         display: flex;
-        align-items: flex-end;
-        gap: 8px;
-        border: 1px solid var(--line);
-        border-radius: 16px;
+        flex-direction: column;
+        gap: 4px;
+        border: 1px solid #ece3da;
+        border-radius: 24px;
         background: #fff;
-        padding: 8px 8px 8px 16px;
+        padding: 14px 12px 10px 18px;
         box-shadow:
-          0 1px 2px rgba(0, 0, 0, 0.03),
-          0 4px 16px rgba(0, 0, 0, 0.03);
+          0 1px 2px rgba(120, 70, 30, 0.04),
+          0 8px 28px rgba(120, 70, 30, 0.07);
+        transition:
+          border-color 0.15s,
+          box-shadow 0.15s;
+        cursor: text;
       }
       .box:focus-within {
-        border-color: var(--faint);
+        border-color: var(--peach);
+        box-shadow:
+          0 0 0 4px rgba(244, 166, 122, 0.16),
+          0 8px 28px rgba(120, 70, 30, 0.08);
       }
       textarea {
-        flex: 1;
+        width: 100%;
         border: 0;
         outline: 0;
         resize: none;
         font: inherit;
         background: transparent;
         color: var(--text);
-        padding: 6px 0;
+        padding: 0;
+        min-height: 26px;
         max-height: 200px;
       }
-      #effort {
+      textarea::placeholder {
+        color: var(--faint);
+      }
+      .bar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        cursor: default;
+      }
+      .seg {
+        display: inline-flex;
+        padding: 3px;
+        gap: 2px;
+        background: var(--soft);
+        border-radius: 999px;
+      }
+      .seg button {
         border: 0;
         background: transparent;
         color: var(--muted);
-        font: 13px var(--sans);
-        height: 34px;
-        padding: 0 4px;
-        border-radius: 8px;
-        cursor: pointer;
-        outline: 0;
+        font: 500 12.5px var(--sans);
+        padding: 4px 12px;
+        border-radius: 999px;
+        transition:
+          background 0.15s,
+          color 0.15s,
+          box-shadow 0.15s;
       }
-      #effort:hover,
-      #effort:focus-visible {
-        background: var(--q);
+      .seg button:hover {
         color: var(--text);
       }
-      #send {
-        border: 0;
-        background: var(--text);
-        color: #fff;
-        border-radius: 10px;
-        width: 34px;
-        height: 34px;
-        font-size: 16px;
+      .seg button[aria-checked='true'] {
+        background: #fff;
+        color: var(--text);
+        box-shadow: 0 1px 3px rgba(120, 70, 30, 0.14);
       }
-      #send:disabled {
-        background: var(--line);
+      .hint {
+        margin-left: auto;
+        font-size: 12px;
+        color: var(--faint);
+      }
+      .go {
+        flex-shrink: 0;
+        border: 0;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        color: #fff;
+        background: linear-gradient(135deg, var(--peach), var(--peach-deep));
+        box-shadow: 0 3px 10px rgba(234, 122, 67, 0.35);
+        transition:
+          transform 0.12s,
+          box-shadow 0.12s,
+          background 0.12s;
+      }
+      .go:hover:not(:disabled) {
+        transform: translateY(-1px);
+        box-shadow: 0 5px 14px rgba(234, 122, 67, 0.42);
+      }
+      .go:disabled {
+        background: var(--soft);
+        color: var(--faint);
+        box-shadow: none;
         cursor: default;
+      }
+      #stop {
+        background: var(--text);
+        box-shadow: 0 3px 10px rgba(31, 27, 24, 0.25);
+      }
+      [hidden] {
+        display: none !important;
       }
 
       @media (max-width: 760px) {
         body {
           flex-direction: column;
         }
+        .glow {
+          display: none;
+        }
         aside {
           width: auto;
           flex-direction: row;
           align-items: center;
+          background: linear-gradient(90deg, #ffeee2, #fff6ef);
           border-right: 0;
-          border-bottom: 1px solid var(--line);
+          border-bottom: 1px solid rgba(234, 150, 100, 0.2);
           padding: 8px 12px;
         }
         #convs {
@@ -448,13 +694,37 @@
           padding: 0;
           margin-right: auto;
         }
+        .hint {
+          display: none;
+        }
+        .bar {
+          justify-content: space-between;
+        }
       }
     </style>
   </head>
   <body>
+    <div class="glow" aria-hidden="true">
+      <div class="orb a"></div>
+      <div class="orb b"></div>
+      <div class="orb c"></div>
+    </div>
     <aside>
-      <div class="brand">minimi</div>
-      <button id="new" type="button">New chat</button>
+      <div class="brand"><i></i>minimi</div>
+      <button id="new" type="button">
+        <svg
+          width="15"
+          height="15"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.2"
+          stroke-linecap="round"
+        >
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+        New chat
+      </button>
       <nav id="convs"></nav>
     </aside>
     <main>
@@ -462,12 +732,33 @@
       <form id="composer">
         <div class="box">
           <textarea id="input" rows="1" placeholder="Ask anything" autofocus></textarea>
-          <select id="effort" title="Reasoning effort" aria-label="Reasoning effort">
-            <option value="low">Low effort</option>
-            <option value="medium">Medium effort</option>
-            <option value="high">High effort</option>
-          </select>
-          <button id="send" type="submit" aria-label="Send">↑</button>
+          <div class="bar">
+            <div id="effort" class="seg" role="radiogroup" aria-label="Reasoning effort">
+              <button type="button" role="radio" data-v="low">Low</button>
+              <button type="button" role="radio" data-v="medium">Medium</button>
+              <button type="button" role="radio" data-v="high">High</button>
+            </div>
+            <span class="hint">Enter to send, Shift+Enter for a new line</span>
+            <button id="stop" class="go" type="button" aria-label="Stop" hidden>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                <rect x="5" y="5" width="14" height="14" rx="3" />
+              </svg>
+            </button>
+            <button id="send" class="go" type="submit" aria-label="Send" disabled>
+              <svg
+                width="17"
+                height="17"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M12 19V5M5 12l7-7 7 7" />
+              </svg>
+            </button>
+          </div>
         </div>
       </form>
     </main>
@@ -506,115 +797,76 @@
 
       let conversationId = location.hash.slice(1) || null;
       let busy = false;
+      let abortCurrent = null;
+      let effort = 'low';
 
       // ---------------------------------------------------------------
-      // Markdown rendering
+      // Markdown rendering: marked -> DOMPurify -> decorate (code blocks,
+      // citations). Falls back to plain text if the CDN scripts are missing.
       // ---------------------------------------------------------------
 
-      function esc(s) {
-        return s.replace(
-          /[&<>"]/g,
-          (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]
-        );
-      }
+      if (window.marked) marked.setOptions({ gfm: true, breaks: true });
 
-      // Inline markdown: `code`, links, **bold**, *em*, [n] citations. Code
-      // spans are parked in `codes` first so their content is never
-      // markdowned, then swapped back at the end.
-      function inline(s, sources) {
-        const codes = [];
-        s = esc(s).replace(/`([^`]+)`/g, (_, c) => `\u0000${codes.push(c) - 1}\u0000`);
-
-        s = s
-          .replace(
-            /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
-            '<a href="$2" target="_blank" rel="noopener">$1</a>'
-          )
-          .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-          .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>')
-          .replace(/\[(\d+)\]/g, (_, n) => {
-            const src = sources[n];
-            return src
-              ? `<sup class="cite"><a href="${esc(src.url)}" target="_blank" rel="noopener" title="${esc(src.title)}">${n}</a></sup>`
-              : `<sup class="cite"><a>${n}</a></sup>`;
-          });
-
-        return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[i]}</code>`);
-      }
-
-      // Block-level markdown: fenced code, headings, tables, lists,
-      // paragraphs. One pass over the lines, each branch consumes its own
-      // lines and advances i.
-      function markdown(md, sources = {}) {
-        const lines = md.split('\n');
-        let html = '';
-        let i = 0;
-
-        const isTable = (l) => /^\s*\|.*\|\s*$/.test(l);
-        const cells = (l) =>
-          l
-            .trim()
-            .replace(/^\||\|$/g, '')
-            .split('|')
-            .map((c) => c.trim());
-
-        while (i < lines.length) {
-          const line = lines[i];
-
-          if (/^```/.test(line)) {
-            // fenced code block: collect until the closing fence
-            const code = [];
-            while (++i < lines.length && !/^```/.test(lines[i])) code.push(lines[i]);
-            html += `<pre><code>${esc(code.join('\n'))}</code></pre>`;
-            i++; // skip the closing fence
-          } else if (/^#{1,6}\s/.test(line)) {
-            // heading (rendered one level down, as h4)
-            html += `<h4>${inline(line.replace(/^#+\s/, ''), sources)}</h4>`;
-            i++;
-          } else if (isTable(line) && /^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1] || '')) {
-            // table: header row, then a |---|---| separator, then data rows
-            html +=
-              '<table><tr>' +
-              cells(line)
-                .map((c) => `<th>${inline(c, sources)}</th>`)
-                .join('') +
-              '</tr>';
-            i += 2;
-            while (i < lines.length && isTable(lines[i])) {
-              html +=
-                '<tr>' +
-                cells(lines[i++])
-                  .map((c) => `<td>${inline(c, sources)}</td>`)
-                  .join('') +
-                '</tr>';
-            }
-            html += '</table>';
-          } else if (/^\s*([-*]|\d+\.)\s/.test(line)) {
-            // list: consecutive list lines, ordered if the first is numbered
-            const tag = /^\s*\d+\./.test(line) ? 'ol' : 'ul';
-            html += `<${tag}>`;
-            while (i < lines.length && /^\s*([-*]|\d+\.)\s/.test(lines[i])) {
-              html += `<li>${inline(lines[i++].replace(/^\s*([-*]|\d+\.)\s/, ''), sources)}</li>`;
-            }
-            html += `</${tag}>`;
-          } else if (!line.trim()) {
-            // blank line
-            i++;
-          } else {
-            // paragraph: a run of plain lines until some other block starts
-            const para = [];
-            while (
-              i < lines.length &&
-              lines[i].trim() &&
-              !/^(```|#{1,6}\s|\s*([-*]|\d+\.)\s|\s*\|)/.test(lines[i])
-            ) {
-              para.push(lines[i++]);
-            }
-            if (!para.length) para.push(lines[i++]);
-            html += `<p>${inline(para.join('\n'), sources).replace(/\n/g, '<br>')}</p>`;
-          }
+      async function copyText(btn, text) {
+        const label = btn.textContent;
+        try {
+          await navigator.clipboard.writeText(text);
+          btn.textContent = 'Copied';
+        } catch {
+          btn.textContent = 'Failed';
         }
-        return html;
+        setTimeout(() => (btn.textContent = label), 1500);
+      }
+
+      // Wraps each <pre> in a block with a language label and copy button,
+      // and syntax-highlights it when the language is known.
+      function decorateCode(root) {
+        for (const pre of root.querySelectorAll('pre')) {
+          const code = pre.querySelector('code');
+          if (!code) continue;
+          const lang = (/language-([\w+-]+)/.exec(code.className) || [])[1] || '';
+          if (window.hljs && lang && hljs.getLanguage(lang)) hljs.highlightElement(code);
+
+          const head = el('div', 'codehead');
+          const copy = el('button', 'ghost', 'Copy');
+          copy.type = 'button';
+          copy.onclick = () => copyText(copy, code.textContent);
+          head.append(el('span', '', lang || 'text'), copy);
+
+          const wrap = el('div', 'codeblock');
+          pre.replaceWith(wrap);
+          wrap.append(head, pre);
+        }
+      }
+
+      // [n] markers only pick which sources go in the row under the answer,
+      // so they're removed from the text instead of shown.
+      function stripCitations(root) {
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+          acceptNode: (n) =>
+            n.parentElement.closest('pre, code') || !/\[\d+\]/.test(n.nodeValue)
+              ? NodeFilter.FILTER_REJECT
+              : NodeFilter.FILTER_ACCEPT,
+        });
+        const hits = [];
+        while (walker.nextNode()) hits.push(walker.currentNode);
+        for (const node of hits) node.nodeValue = node.nodeValue.replace(/\s*\[\d+\]/g, '');
+      }
+
+      function renderInto(node, md) {
+        if (!window.marked || !window.DOMPurify) {
+          node.style.whiteSpace = 'pre-wrap';
+          node.textContent = md;
+          return;
+        }
+        node.style.whiteSpace = '';
+        node.innerHTML = DOMPurify.sanitize(marked.parse(md));
+        for (const a of node.querySelectorAll('a[href]')) {
+          a.target = '_blank';
+          a.rel = 'noopener';
+        }
+        decorateCode(node);
+        stripCitations(node);
       }
 
       // ---------------------------------------------------------------
@@ -665,6 +917,23 @@
         t.append(answer, sources);
         $('#thread').append(t);
         return { t, answer, sources };
+      }
+
+      // Copy and retry under a finished answer. Retry asks the same question
+      // again as a new turn.
+      function addActions(turnEl, question, getAnswer, metaText) {
+        const row = el('div', 'actions');
+        const copy = el('button', 'ghost', 'Copy');
+        copy.type = 'button';
+        copy.onclick = () => copyText(copy, getAnswer().replace(/\s*\[\d+\]/g, ''));
+        const retry = el('button', 'ghost', 'Retry');
+        retry.type = 'button';
+        retry.onclick = () => {
+          if (!busy) send(question);
+        };
+        row.append(copy, retry);
+        if (metaText) row.append(el('span', 'meta', metaText));
+        turnEl.append(row);
       }
 
       // Runs fn, then keeps the scroll pinned to the bottom if the reader
@@ -745,13 +1014,13 @@
         }
         for (const turn of turns) {
           const v = turnView(turn.question, turn.asked_at);
-          const map = Object.fromEntries(turn.sources.map((s) => [s.n, s]));
-          v.answer.innerHTML = markdown(turn.answer || '', map);
+          renderInto(v.answer, turn.answer || '');
           const cited = new Set([...(turn.answer || '').matchAll(/\[(\d+)\]/g)].map((m) => +m[1]));
           renderSources(
             v.sources,
             turn.sources.filter((s) => cited.has(s.n))
           );
+          if (turn.answer) addActions(v.t, turn.question, () => turn.answer, '');
         }
         $('#scroll').scrollTop = $('#scroll').scrollHeight;
         loadList();
@@ -764,7 +1033,9 @@
       function trailView(container) {
         const d = el('details', 'trail');
         d.open = true;
-        const summary = el('summary', '', 'Working…');
+        const label = el('span', 'shimmer', 'Working…');
+        const summary = el('summary');
+        summary.append(label);
         const steps = el('div', 'steps');
         d.append(summary, steps);
         container.before(d);
@@ -776,29 +1047,45 @@
         const start = performance.now();
         const secs = () => ((performance.now() - start) / 1000).toFixed(1);
 
-        // a live clock in the summary, so a quiet stretch never looks frozen
+        // a live clock in the header, so a quiet stretch never looks frozen
         let clock;
         const tick = () => {
           clearInterval(clock);
-          const show = () => (summary.textContent = `Working… ${Math.floor(secs())}s`);
+          label.classList.add('shimmer');
+          const show = () => (label.textContent = `Working… ${Math.floor(secs())}s`);
           show();
           clock = setInterval(show, 1000);
         };
 
-        // a pulsing step from the first moment, replaced by the first real one
-        let placeholder = el('div', 'step active');
-        placeholder.append(el('div', '', 'Thinking…'));
-        steps.append(placeholder);
+        // One step: a verb (shimmering while it runs, past tense once done)
+        // and an optional detail after it.
+        const newStep = (verb, past, detail) => {
+          const s = el('div', 'step');
+          const line = el('div', 'line');
+          s.verbEl = el('span', 'verb shimmer', verb);
+          s.past = past;
+          line.append(s.verbEl);
+          if (detail) line.append(el('span', 'detail', detail));
+          s.append(line);
+          steps.append(s);
+          return s;
+        };
+        const endStep = (s) => {
+          if (!s) return;
+          s.verbEl.classList.remove('shimmer');
+          if (s.past) s.verbEl.textContent = s.past;
+        };
+
+        // a live step from the first moment, replaced by the first real one
+        let placeholder = newStep('Thinking…', '', '');
         tick();
 
         // ends the previous step and opens a new one
-        const step = (text) => {
+        const step = (verb, past, detail) => {
           placeholder?.remove();
           placeholder = null;
-          if (active) active.classList.remove('active');
-          active = el('div', 'step active');
-          active.append(el('div', '', text));
-          steps.append(active);
+          endStep(active);
+          active = newStep(verb, past, detail);
           thinking = null;
           return active;
         };
@@ -806,9 +1093,12 @@
         return {
           thinking(text) {
             if (!thinking) {
-              const s = step('');
+              const s = step('Thinking', 'Thought', '');
               const det = el('details');
-              det.append(el('summary', '', 'Thinking'), el('pre'));
+              det.open = true;
+              const sum = el('summary');
+              sum.append(s.verbEl);
+              det.append(sum, el('pre'));
               s.firstChild.replaceWith(det);
               thinking = det.querySelector('pre');
             }
@@ -816,7 +1106,11 @@
           },
           search(e) {
             searches++;
-            step(`Searching${e.since ? ` since ${e.since}` : ''}: ${e.queries.join(' · ')}`);
+            step(
+              'Searching',
+              'Searched',
+              `${e.queries.join(' · ')}${e.since ? ` (since ${e.since})` : ''}`
+            );
           },
           searchDone(e) {
             const more = e.domains.length > 4 ? ` +${e.domains.length - 4}` : '';
@@ -832,7 +1126,9 @@
           },
           open(e) {
             step(
-              `Reading ${e.urls.length} page${e.urls.length > 1 ? 's' : ''}${e.live ? ' (live)' : ''}`
+              'Reading',
+              'Read',
+              `${e.urls.length} page${e.urls.length > 1 ? 's' : ''}${e.live ? ' (live)' : ''}`
             ).append(el('div', 'sub', e.urls.map(host).join(', ')));
           },
           openDone(e) {
@@ -843,11 +1139,12 @@
             clearInterval(clock);
             placeholder?.remove();
             placeholder = null;
-            if (active) active.classList.remove('active');
+            endStep(active);
+            label.classList.remove('shimmer');
             const bits = [];
             if (searches) bits.push(`Searched ${searches === 1 ? 'once' : `${searches} times`}`);
             if (pages) bits.push(`read ${pages} page${pages > 1 ? 's' : ''}`);
-            summary.textContent = bits.length
+            label.textContent = bits.length
               ? `${bits.join(', ')} · ${secs()}s`
               : `Thought for ${secs()}s`;
             if (!steps.children.length) d.remove();
@@ -862,27 +1159,57 @@
       }
 
       // ---------------------------------------------------------------
+      // Composer state
+      // ---------------------------------------------------------------
+
+      function setBusy(b) {
+        busy = b;
+        $('#send').hidden = b;
+        $('#stop').hidden = !b;
+        syncSend();
+      }
+
+      function syncSend() {
+        $('#send').disabled = busy || !$('#input').value.trim();
+      }
+
+      function setEffort(v) {
+        effort = v;
+        for (const b of document.querySelectorAll('#effort button')) {
+          b.setAttribute('aria-checked', String(b.dataset.v === v));
+        }
+      }
+
+      // ---------------------------------------------------------------
       // Sending a question and streaming the answer
       // ---------------------------------------------------------------
 
       async function send(message) {
-        const effort = $('#effort').value;
-        busy = true;
-        $('#send').disabled = true;
+        const sentEffort = effort;
+        setBusy(true);
         if ($('.empty')) $('#thread').replaceChildren();
+
+        const ctrl = new AbortController();
+        abortCurrent = () => ctrl.abort();
 
         const v = turnView(message, new Date().toISOString());
         const trail = trailView(v.answer);
 
         let text = '';
-        let map = {};
         let answering = false;
+        let stopped = false;
+        let metaText = '';
         v.answer.classList.add('cursor');
 
-        const paint = () =>
-          stickToBottom(() => {
-            v.answer.innerHTML = markdown(text, map);
-          });
+        // repaint at most once per frame while chunks stream in
+        let frame = 0;
+        const render = () => {
+          frame = 0;
+          stickToBottom(() => renderInto(v.answer, text));
+        };
+        const paint = () => {
+          if (!frame) frame = requestAnimationFrame(render);
+        };
 
         // Routes each AgentEvent from the server to the right piece of UI.
         const handle = (e) => {
@@ -934,13 +1261,11 @@
               break;
 
             case 'sources':
-              map = Object.fromEntries(e.sources.map((s) => [s.n, s]));
-              paint();
               renderSources(v.sources, e.sources);
               break;
 
             case 'done':
-              v.t.append(el('div', 'meta', `${(e.ms / 1000).toFixed(1)}s · ${effort} effort`));
+              metaText = `${(e.ms / 1000).toFixed(1)}s · ${sentEffort} effort`;
               break;
 
             case 'error':
@@ -954,7 +1279,8 @@
           const res = await api('/api/chat', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ conversationId, message, tz, effort }),
+            body: JSON.stringify({ conversationId, message, tz, effort: sentEffort }),
+            signal: ctrl.signal,
           });
           if (!res.ok) throw new Error((await res.json()).error || res.statusText);
 
@@ -973,12 +1299,20 @@
             }
           }
         } catch (err) {
-          v.t.append(el('div', 'error', `Something went wrong: ${err.message}`));
+          if (err.name === 'AbortError') {
+            stopped = true;
+            metaText = 'Stopped';
+          } else {
+            v.t.append(el('div', 'error', `Something went wrong: ${err.message}`));
+          }
         } finally {
           if (!answering) trail.finish();
+          cancelAnimationFrame(frame);
           v.answer.classList.remove('cursor');
-          busy = false;
-          $('#send').disabled = false;
+          if (text) stickToBottom(() => renderInto(v.answer, text));
+          if (text || stopped) addActions(v.t, message, () => text, metaText);
+          abortCurrent = null;
+          setBusy(false);
           loadList();
           $('#input').focus();
         }
@@ -992,6 +1326,7 @@
       input.addEventListener('input', () => {
         input.style.height = 'auto';
         input.style.height = `${input.scrollHeight}px`;
+        syncSend();
       });
       input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
@@ -999,22 +1334,34 @@
           $('#composer').requestSubmit();
         }
       });
+      $('.box').addEventListener('click', (e) => {
+        if (!e.target.closest('button')) input.focus();
+      });
       $('#composer').addEventListener('submit', (e) => {
         e.preventDefault();
         const message = input.value.trim();
         if (!message || busy) return;
         input.value = '';
         input.style.height = 'auto';
+        syncSend();
         send(message);
       });
+      $('#stop').onclick = () => abortCurrent?.();
+
+      let savedEffort = 'low';
       try {
-        $('#effort').value = localStorage.getItem('effort') || 'low';
+        savedEffort = localStorage.getItem('effort') || 'low';
       } catch {}
-      $('#effort').onchange = () => {
+      setEffort(['low', 'medium', 'high'].includes(savedEffort) ? savedEffort : 'low');
+      $('#effort').addEventListener('click', (e) => {
+        const b = e.target.closest('button[data-v]');
+        if (!b) return;
+        setEffort(b.dataset.v);
         try {
-          localStorage.setItem('effort', $('#effort').value);
+          localStorage.setItem('effort', b.dataset.v);
         } catch {}
-      };
+      });
+
       $('#new').onclick = () => openConversation(null);
       openConversation(conversationId);
     </script>

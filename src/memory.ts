@@ -27,7 +27,12 @@ CREATE TABLE IF NOT EXISTS turns (
   answer TEXT,
   sources TEXT NOT NULL DEFAULT '[]',
   topic TEXT,
-  entities TEXT
+  entities TEXT,
+  effort TEXT,
+  tool_calls INTEGER,
+  pages_opened INTEGER,
+  ms INTEGER,
+  error TEXT
 );
 CREATE TABLE IF NOT EXISTS claims (
   id INTEGER PRIMARY KEY,
@@ -47,8 +52,23 @@ export function openDb(path: string): DatabaseSync {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
   db.exec(SCHEMA);
+  // Databases created before the per-turn stats columns existed.
+  const cols = new Set(
+    (db.prepare('PRAGMA table_info(turns)').all() as { name: string }[]).map((c) => c.name)
+  );
+  for (const [name, type] of Object.entries(TURN_STATS)) {
+    if (!cols.has(name)) db.exec(`ALTER TABLE turns ADD COLUMN ${name} ${type}`);
+  }
   return db;
 }
+
+const TURN_STATS = {
+  effort: 'TEXT',
+  tool_calls: 'INTEGER',
+  pages_opened: 'INTEGER',
+  ms: 'INTEGER',
+  error: 'TEXT',
+};
 
 export function domain(url: string): string {
   try {
@@ -155,41 +175,72 @@ export function startTurn(
   return { conversationId, turnId: Number(r.lastInsertRowid) };
 }
 
+export type TurnStats = {
+  effort: string;
+  toolCalls: number;
+  pagesOpened: number;
+  ms: number;
+  error?: string;
+};
+
 export function finishTurn(
   db: DatabaseSync,
   turnId: number,
   answer: string,
-  sources: Source[]
+  sources: Source[],
+  stats?: TurnStats
 ): void {
-  db.prepare('UPDATE turns SET answer = ?, sources = ? WHERE id = ?').run(
+  db.prepare(
+    `UPDATE turns SET answer = ?, sources = ?, effort = ?, tool_calls = ?, pages_opened = ?, ms = ?, error = ?
+     WHERE id = ?`
+  ).run(
     answer,
     JSON.stringify(sources),
+    stats?.effort ?? null,
+    stats?.toolCalls ?? null,
+    stats?.pagesOpened ?? null,
+    stats?.ms ?? null,
+    stats?.error ?? null,
     turnId
   );
 }
 
 type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
-// The last few question/answer pairs of this chat, for the model to see as
-// history. Citations are stripped (they point at sources the model cannot
-// see), empty answers are skipped, and everything but the newest answer is
-// trimmed to 300 chars.
+// Cuts an old answer to about `max` chars at a sentence end, so the model
+// never sees itself stopping mid-sentence, and marks the cut.
+function shorten(text: string, max = 300): string {
+  if (text.length <= max) return text;
+  const head = text.slice(0, max);
+  const end = Math.max(...['. ', '? ', '! ', '\n'].map((p) => head.lastIndexOf(p)));
+  return `${end > max / 3 ? head.slice(0, end + 1).trimEnd() : head.trimEnd()} [rest of this reply cut]`;
+}
+
+// The last five question/answer pairs of this chat (ten messages), for the
+// model to see as history. Citations are stripped (their numbers would clash
+// with this turn's), empty answers are skipped, and everything but the newest
+// answer is shortened. The newest answer carries the pages it cited, so a
+// follow-up like "open the main articles" can go straight to them.
 export function recentMessages(db: DatabaseSync, conversationId: string): ChatMessage[] {
   const rows = db
     .prepare(
       `
-    SELECT question, answer FROM turns
+    SELECT question, answer, sources FROM turns
     WHERE conversation_id = ? AND answer IS NOT NULL AND answer != ''
-    ORDER BY id DESC LIMIT 4`
+    ORDER BY id DESC LIMIT 5`
     )
-    .all(conversationId) as { question: string; answer: string }[];
+    .all(conversationId) as { question: string; answer: string; sources: string }[];
   rows.reverse();
 
   const messages: ChatMessage[] = [];
   for (let i = 0; i < rows.length; i++) {
-    const answer = rows[i].answer.replace(/\[\d+\]/g, '');
+    const answer = rows[i].answer.replace(/\s*\[\d+\]/g, '');
     const isNewest = i === rows.length - 1;
-    const kept = isNewest || answer.length <= 300 ? answer : `${answer.slice(0, 300)}…`;
+    let kept = isNewest ? answer : shorten(answer);
+    if (isNewest) {
+      const pages = (JSON.parse(rows[i].sources) as Source[]).map((s) => `${s.title} (${s.url})`);
+      if (pages.length) kept += `\n\n[Pages behind this reply: ${pages.join('; ')}]`;
+    }
     messages.push(
       { role: 'user', content: rows[i].question },
       { role: 'assistant', content: kept }

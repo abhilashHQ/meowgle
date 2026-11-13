@@ -11,7 +11,8 @@ export type Tools = {
   openPage(
     args: { urls: string[]; focus?: string },
     book: Book,
-    live: boolean
+    live: boolean,
+    maxChars: number
   ): Promise<ToolResult>;
 };
 
@@ -22,8 +23,10 @@ export const TOOL_SCHEMAS = [
     function: {
       name: 'web_search',
       description:
-        'Search the web. Pass every independent lookup as its own query in one call; they run in parallel.' +
-        ' Returns numbered results with excerpts.',
+        'Search the web. Each query runs on its own and in parallel, so put every separate thing you need to know' +
+        ' in one call as its own query. Returns up to 6 results per query, numbered for citation, each with its URL,' +
+        ' publish date and short excerpts from a cached copy of the page. Excerpts are enough to choose which pages' +
+        ' to read and to answer facts that do not change. They can be out of date or cut off.',
       parameters: {
         type: 'object',
         properties: {
@@ -45,15 +48,19 @@ export const TOOL_SCHEMAS = [
     function: {
       name: 'open_page',
       description:
-        'Read pages in full, or just the parts about `focus`.' +
-        ' Use when search excerpts lack the exact figure, or to re-check a page from the ledger.',
+        'Read up to 5 pages in one call. Without focus you get the first part of each page, which suits' +
+        ' articles and announcements. With focus you get only the passages about it, which suits long pages where' +
+        ' you need one detail, such as pricing tables, docs and changelogs. This is how you get a current reading,' +
+        ' since search excerpts come from cached copies. Each page comes back marked live or cached copy.' +
+        ' A FAILED page did not load, so use another source for it.',
       parameters: {
         type: 'object',
         properties: {
           urls: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 5 },
           focus: {
             type: 'string',
-            description: 'What to pull out, e.g. "Pro plan monthly price per user"',
+            description:
+              'The detail to pull out, phrased the way the page would state it, e.g. "Pro plan monthly price per user".',
           },
         },
         required: ['urls'],
@@ -105,8 +112,11 @@ async function exa(path: string, body: object, key: string): Promise<any> {
 export function makeExaTools(key: string): Tools {
   return {
     // One Exa /search per query, all in parallel. Hits are numbered into the
-    // book and rendered as blocks the model can cite.
+    // book and rendered as blocks the model can cite, grouped under the query
+    // that found them. Fewer results per query as the query count grows, so a
+    // wide search stays readable.
     async webSearch({ queries, since }, book) {
+      const numResults = queries.length <= 2 ? 6 : queries.length <= 5 ? 4 : 3;
       const settled = await Promise.allSettled(
         queries.map((query) =>
           exa(
@@ -114,7 +124,7 @@ export function makeExaTools(key: string): Tools {
             {
               query,
               type: 'lite',
-              numResults: 6,
+              numResults,
               contents: { highlights: true },
               ...(since ? { startPublishedDate: `${since}T00:00:00.000Z` } : {}),
             },
@@ -124,17 +134,25 @@ export function makeExaTools(key: string): Tools {
       );
 
       const seen = new Set<string>();
-      const blocks: string[] = [];
-      const errors: string[] = [];
+      const groups: string[] = [];
+      let failed = 0;
 
       for (let i = 0; i < settled.length; i++) {
         const r = settled[i];
+        const head = `## Query: "${queries[i]}"`;
         if (r.status === 'rejected') {
-          errors.push(`Search "${queries[i]}" failed: ${(r.reason as Error).message}`);
+          failed++;
+          groups.push(`${head}\nFailed: ${(r.reason as Error).message}`);
           continue;
         }
+        const blocks: string[] = [];
         for (const hit of r.value.results ?? []) {
-          if (seen.has(hit.url)) continue; // same URL across queries: first excerpt wins
+          const known = book.get(hit.url);
+          if (seen.has(hit.url)) {
+            // same URL across queries: first excerpt wins, later queries point back
+            if (known) blocks.push(`[${known.n}] (same page as above)`);
+            continue;
+          }
           seen.add(hit.url);
           const excerpt = (hit.highlights ?? []).join(' … ');
           const s = addSource(book, hit.url, hit.title, false, excerpt);
@@ -143,21 +161,22 @@ export function makeExaTools(key: string): Tools {
             : 'no publish date';
           blocks.push(`[${s.n}] ${s.title}\n${hit.url} (${date})\n${excerpt}`);
         }
+        groups.push(`${head}\n${blocks.join('\n\n') || 'No results.'}`);
       }
 
-      const text = [...blocks, ...errors].join('\n\n') || 'No results.';
       return {
-        text,
+        text: groups.join('\n\n'),
         ok: seen.size,
-        failed: errors.length,
+        failed,
         domains: [...new Set([...seen].map(domain))],
       };
     },
 
     // Reads one or more pages. With `focus`, Exa returns only the relevant
-    // highlights instead of the full text. Pages the model already searched
-    // are re-fetched live so old figures can be re-checked.
-    async openPage({ urls, focus }, book, live) {
+    // highlights instead of the full text. Pages cited in an earlier turn are
+    // re-fetched live so old figures can be re-checked; any other page is
+    // re-crawled when Exa's copy is older than a day.
+    async openPage({ urls, focus }, book, live, maxChars) {
       let res: any;
       try {
         res = await exa(
@@ -165,9 +184,9 @@ export function makeExaTools(key: string): Tools {
           {
             urls,
             ...(focus
-              ? { highlights: { query: focus, maxCharacters: 800 } }
-              : { text: { maxCharacters: 6000 } }),
-            ...(live ? { maxAgeHours: 0 } : {}),
+              ? { highlights: { query: focus, maxCharacters: 2000 } }
+              : { text: { maxCharacters: maxChars } }),
+            maxAgeHours: live ? 0 : 24,
           },
           key
         );
@@ -191,13 +210,17 @@ export function makeExaTools(key: string): Tools {
           continue;
         }
         ok++;
-        const body = focus ? (page.highlights ?? []).join(' … ') : (page.text ?? '');
+        const body: string = focus ? (page.highlights ?? []).join(' … ') : (page.text ?? '');
+        const cut =
+          !focus && body.length >= maxChars
+            ? `\n[Cut off at ${maxChars} characters. Open it again with a focus to reach a detail further down.]`
+            : '';
         const s = addSource(book, page.url ?? st.id, page.title, true, body);
         const how = st.source === 'crawled' ? 'live' : 'cached copy';
         const date = page.publishedDate
           ? `published ${page.publishedDate.slice(0, 10)}`
           : 'no publish date';
-        blocks.push(`[${s.n}] ${s.title}\n${s.url} (${date}, ${how})\n${body}`);
+        blocks.push(`[${s.n}] ${s.title}\n${s.url} (${date}, ${how})\n${body}${cut}`);
       }
 
       return { text: blocks.join('\n\n'), ok, failed: urls.length - ok, domains: [] };
