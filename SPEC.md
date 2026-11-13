@@ -158,6 +158,8 @@ Other routes:
 
 `buildMessages()` order:
 
+The instructions and ledger go in a `developer` message. Harmony puts app instructions there, and on Bedrock a chat `system` message outranked `developer` in a conflict test (4/4), so it lands in harmony's meta slot instead.
+
 1. **System prompt** (static constant). Contains:
    - **Voice:** a sharp, warm friend who knows the topic. Lead with the direct answer. Explain what it means for this person in plain prose. Bullets only for real side-by-side comparisons. No headers in short answers, minimal bold, no "Great question". Match the user's length and tone. Chit-chat gets a short reply with no search.
    - **Search policy:** search when the answer depends on facts that change or that you aren't sure of. Scale effort to the question. Put all independent lookups in one `web_search` call. Start broad, then narrow. Prefer primary sources such as vendor pricing pages and official changelogs over SEO roundups. Use `open_page` with `focus` when excerpts don't contain the exact number. Stop when you can answer.
