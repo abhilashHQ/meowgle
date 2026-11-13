@@ -152,7 +152,7 @@ test('extractClaims writes topic, entities and validated claims, retrying once',
     db,
     t.turnId,
     async () => {
-      if (calls++ === 0) return { choices: [{ message: { content: 'oops' } }] };
+      if (calls++ === 0) throw new Error('no structured output');
       const args = {
         topic: 'Neon pricing',
         entities: ['Neon'],
@@ -171,15 +171,7 @@ test('extractClaims writes topic, entities and validated claims, retrying once',
           },
         ],
       };
-      return {
-        choices: [
-          {
-            message: {
-              tool_calls: [{ function: { name: 'save_memory', arguments: JSON.stringify(args) } }],
-            },
-          },
-        ],
-      };
+      return args;
     },
     new Map([['https://neon.com/pricing', 'Launch $19/month, Scale $69/month']])
   );

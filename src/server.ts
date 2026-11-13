@@ -1,7 +1,10 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createHash, timingSafeEqual } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { delimiter, join } from 'node:path';
 import { openDb, listConversations, conversationTurns } from './memory.ts';
-import { makeLLM } from './llm.ts';
+import { handleMcp, makeClaude } from './llm.ts';
 import { makeExaTools } from './tools.ts';
 import { runTurn } from './agent.ts';
 
@@ -14,16 +17,33 @@ try {
 } catch {}
 
 const env = (k: string, fallback = '') => process.env[k]?.trim() || fallback;
-for (const k of ['LLM_API_KEY', 'EXA_API_KEY']) {
+for (const k of ['CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR', 'EXA_API_KEY']) {
   if (!env(k)) console.warn(`Missing ${k} in .env, requests will fail.`);
 }
 
+// The CLI binary, spawned without a shell. On Windows the npm install puts a
+// .cmd shim on PATH that wraps a native claude.exe; we run the exe directly.
+function claudeBin(): string {
+  if (env('CLAUDE_BIN')) return env('CLAUDE_BIN');
+  const win = process.platform === 'win32';
+  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+    const direct = join(dir, win ? 'claude.exe' : 'claude');
+    if (existsSync(direct)) return direct;
+    const shimmed = join(dir, 'node_modules/@anthropic-ai/claude-code/bin/claude.exe');
+    if (win && existsSync(join(dir, 'claude.cmd')) && existsSync(shimmed)) return shimmed;
+  }
+  throw new Error('claude CLI not found on PATH. Install it or set CLAUDE_BIN.');
+}
+
+const port = Number(env('PORT', '3000'));
 const db = openDb(env('DB_PATH', 'data/minimi.db'));
-const llm = makeLLM({
-  baseUrl: env('LLM_BASE_URL', 'https://bedrock-runtime.ap-south-1.amazonaws.com/openai/v1'),
-  apiKey: env('LLM_API_KEY'),
-  model: env('LLM_MODEL', 'openai.gpt-oss-120b-1:0'),
-  effort: env('LLM_EFFORT', 'low'),
+const model = makeClaude({
+  bin: claudeBin(),
+  model: env('CLAUDE_MODEL', 'sonnet'),
+  effort: env('CLAUDE_EFFORT', 'low'),
+  configDir: env('CLAUDE_CONFIG_DIR'),
+  token: env('CLAUDE_CODE_OAUTH_TOKEN'),
+  mcpBase: `http://127.0.0.1:${port}`,
 });
 const tools = makeExaTools(env('EXA_API_KEY'));
 const indexHtml = new URL('../public/index.html', import.meta.url);
@@ -75,7 +95,7 @@ async function chat(req: IncomingMessage, res: ServerResponse) {
   res.on('close', () => (closed = true));
 
   for await (const event of runTurn(
-    { db, llm, tools },
+    { db, model, tools },
     { conversationId, message, tz: body.tz, effort }
   )) {
     if (closed) break;
@@ -84,9 +104,21 @@ async function chat(req: IncomingMessage, res: ServerResponse) {
   res.end();
 }
 
+// With AGENT_API_TOKEN set, every /api route needs it as a Bearer token. The
+// page itself stays public so it can ask for the token.
+const digest = (s: string) => createHash('sha256').update(s).digest();
+const apiToken = env('AGENT_API_TOKEN');
+
+function authorized(req: IncomingMessage): boolean {
+  if (!apiToken) return true;
+  const given = req.headers.authorization?.replace(/^Bearer\s+/i, '') ?? '';
+  return timingSafeEqual(digest(given), digest(apiToken));
+}
+
 // ---------------------------------------------------------------------------
 // Routing
 //
+//   POST /mcp/:runId             -> MCP endpoint for an in-flight model run
 //   POST /api/chat               -> chat, SSE stream
 //   GET  /api/conversations      -> conversation list
 //   GET  /api/conversations/:id  -> turns of one conversation
@@ -95,6 +127,11 @@ async function chat(req: IncomingMessage, res: ServerResponse) {
 createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
   try {
+    const mcp = url.pathname.match(/^\/mcp\/([\w-]{36})$/);
+    if (mcp) return await handleMcp(req, res, mcp[1]);
+    if (url.pathname.startsWith('/api/') && !authorized(req)) {
+      return json(res, 401, { error: 'Unauthorized' });
+    }
     if (req.method === 'POST' && url.pathname === '/api/chat') {
       return await chat(req, res);
     }
@@ -116,6 +153,4 @@ createServer(async (req, res) => {
     if (!res.headersSent) json(res, 500, { error: 'Internal error' });
     else res.end();
   }
-}).listen(Number(env('PORT', '3000')), () =>
-  console.log(`minimi on http://localhost:${env('PORT', '3000')}`)
-);
+}).listen(port, () => console.log(`minimi on http://localhost:${port}`));

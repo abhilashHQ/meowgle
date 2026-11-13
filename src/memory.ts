@@ -7,7 +7,10 @@ import { randomUUID } from 'node:crypto';
 // and claims (checkable facts filed per turn by the extractor at the bottom).
 export type Source = { n: number; url: string; title: string; fetched_at: string };
 export type Claim = { entity: string; fact: string; value: string; source_url: string };
-export type Complete = (body: Record<string, unknown>) => Promise<any>;
+export type Complete = (
+  messages: { role: 'system' | 'user'; content: string }[],
+  schema: object
+) => Promise<any>;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS conversations (
@@ -373,49 +376,42 @@ export function validateClaims(
 // The extractor: files a finished turn into long-term memory
 // ---------------------------------------------------------------------------
 
-const SAVE_MEMORY = {
-  type: 'function',
-  function: {
-    name: 'save_memory',
-    description: 'File this exchange in long-term memory.',
-    parameters: {
-      type: 'object',
-      properties: {
-        topic: { type: 'string', description: '2-5 words, e.g. "Postgres hosting pricing"' },
-        entities: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Products or companies the question is about',
-        },
-        claims: {
-          type: 'array',
-          maxItems: 6,
-          items: {
-            type: 'object',
-            properties: {
-              entity: { type: 'string' },
-              fact: { type: 'string', description: 'What the value is, e.g. "Launch plan price"' },
-              value: {
-                type: 'string',
-                description: 'Bare value exactly as in the answer, e.g. "$19/month"',
-              },
-              source_url: {
-                type: 'string',
-                description: 'URL from the source list that supports it',
-              },
-            },
-            required: ['entity', 'fact', 'value', 'source_url'],
+const MEMORY_SCHEMA = {
+  type: 'object',
+  properties: {
+    topic: { type: 'string', description: '2-5 words, e.g. "Postgres hosting pricing"' },
+    entities: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Products or companies the question is about',
+    },
+    claims: {
+      type: 'array',
+      maxItems: 6,
+      items: {
+        type: 'object',
+        properties: {
+          entity: { type: 'string' },
+          fact: { type: 'string', description: 'What the value is, e.g. "Launch plan price"' },
+          value: {
+            type: 'string',
+            description: 'Bare value exactly as in the answer, e.g. "$19/month"',
+          },
+          source_url: {
+            type: 'string',
+            description: 'URL from the source list that supports it',
           },
         },
+        required: ['entity', 'fact', 'value', 'source_url'],
       },
-      required: ['topic', 'entities', 'claims'],
     },
   },
+  required: ['topic', 'entities', 'claims'],
 };
 
 const EXTRACT_PROMPT = [
   `You file a research assistant's answers into long-term memory so it can later check whether they are still true.` +
-    ` Call save_memory once.`,
+    ` Fill in the record for this exchange.`,
   `- claims: up to 6 concrete, checkable facts stated in the answer,` +
     ` such as prices, plan limits, release dates, version numbers, launches.` +
     ` Prefer the ones the user would ask about again.`,
@@ -448,18 +444,13 @@ export async function extractClaims(
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const res = await complete({
-        messages: [
+      const args = await complete(
+        [
           { role: 'system', content: EXTRACT_PROMPT },
           { role: 'user', content: user },
         ],
-        tools: [SAVE_MEMORY],
-        tool_choice: 'required',
-        reasoning_effort: 'low',
-        max_tokens: 1500,
-      });
-
-      const args = JSON.parse(res.choices[0].message.tool_calls[0].function.arguments);
+        MEMORY_SCHEMA
+      );
       const wellFormed =
         typeof args.topic === 'string' &&
         Array.isArray(args.entities) &&

@@ -1,4 +1,4 @@
-# minimi-agent v2 spec (implementation contract)
+# minimi-agent v3 spec (implementation contract)
 
 A chat agent with one capability, web search, and a dated memory of everything it was asked. It is judged on architecture: answers fast, gets things right, good to talk to. It must run with `npm install` then `npm run dev`. TypeScript on Node.
 
@@ -7,11 +7,12 @@ The author must be able to explain every line in an interview. Small beats cleve
 ## Hard constraints
 
 - Node >= 22.13 (`"engines": {"node": ">=22.13"}`).
-- **Zero runtime dependencies.** Dev deps only: `typescript`, `tsx`, `@types/node`. No web framework, agent framework, LLM SDK, ORM or vector DB.
+- **Zero runtime dependencies.** Dev deps only: `typescript`, `tsx`, `@types/node`, `prettier`. No web framework, agent framework, LLM SDK, ORM or vector DB.
+- The model is the Claude Code CLI (`claude -p`) on the owner's Claude subscription, spawned as a child process. It must be installed and on PATH (or `CLAUDE_BIN`).
 - Env: load with `process.loadEnvFile()` wrapped in try/catch, so a missing `.env` is fine. No `dotenv`.
 - Storage: built-in `node:sqlite` (`DatabaseSync`). DB file at `data/minimi.db`, gitignored, overridable with `DB_PATH`.
 - HTTP: `node:http`. Streaming uses SSE. The UI is one static `public/index.html` with inline JS and CSS and no build step.
-- LLM and Exa are called with `fetch` directly.
+- Exa is called with `fetch` directly. The model is a child process; our tools reach it over MCP served by our own HTTP server.
 - Scripts:
   - `"dev": "tsx src/server.ts"`
   - `"test": "tsx --test test/*.test.ts"`
@@ -23,23 +24,23 @@ The author must be able to explain every line in an interview. Small beats cleve
 ## Env (`.env.example`, all listed)
 
 ```
-LLM_BASE_URL=https://bedrock-runtime.ap-south-1.amazonaws.com/openai/v1
-LLM_API_KEY=            # Bedrock API key (Bedrock console > API keys), sent as Bearer. Any OpenAI-compatible provider works.
-LLM_MODEL=openai.gpt-oss-120b-1:0
-LLM_EFFORT=low       # sent as reasoning_effort
+CLAUDE_CONFIG_DIR=C:\claude-agent-cfg   # isolated config dir, never the owner's default
+CLAUDE_CODE_OAUTH_TOKEN=                # from `claude setup-token` run with that config dir
+CLAUDE_MODEL=sonnet
+CLAUDE_EFFORT=low                       # default when the UI doesn't send one
+CLAUDE_BIN=                             # optional, if claude isn't on PATH
+AGENT_API_TOKEN=                        # when set, /api/* needs it as a Bearer token
 EXA_API_KEY=
 PORT=3000
 DB_PATH=data/minimi.db
 ```
 
-The provider is any OpenAI chat-completions endpoint. Switching to NVIDIA NIM or OpenRouter is an `.env` change only.
-
 ## File layout
 
 ```
-src/server.ts    HTTP routes, SSE, static file, request validation
-src/agent.ts     runTurn(): the loop. Builds the prompt, calls the model, runs tools, yields events, persists
-src/llm.ts       streamChat(): one fetch to /chat/completions with stream:true, parses SSE into deltas
+src/server.ts    HTTP routes, SSE, static file, request validation, bearer gate, MCP route
+src/agent.ts     runTurn(): builds the prompt, runs the model, serves its tool calls, yields events, persists
+src/llm.ts       makeClaude(): spawns `claude -p`, parses stream-json; handleMcp(): the MCP endpoint
 src/tools.ts     tool schemas + webSearch() + openPage() against Exa
 src/memory.ts    db open/migrate, turn + claim writes, renderLedger(), renderDateStrip(), extractClaims()
 src/prompt.ts    SYSTEM_PROMPT constant + buildMessages()
@@ -83,7 +84,7 @@ Memory is global across conversations because there is a single user. `conversat
 
 ## Tools (the one capability: web search)
 
-The model sees two functions. Both take lists because gpt-oss makes one tool call per step. The harness runs the items in parallel.
+The model sees two functions. Both take lists so one call can fan out. The harness runs the items in parallel. The model sees them as `mcp__minimi__web_search` and `mcp__minimi__open_page`.
 
 `web_search({ queries: string[] (1-8), since?: "YYYY-MM-DD" })`
 - One Exa `POST /search` per query, run in parallel, `type: "lite"`, `numResults: 6`, `contents: { highlights: true }`.
@@ -110,25 +111,24 @@ Timeouts: 10s per Exa call. Retry once on 5xx or a network error. Never throw ou
 
 1. Insert the `turns` row with `question`, `asked_at`, `tz`, and create the conversation if it's new (title = first 60 chars of the first question).
 2. Build the messages (see Prompt).
-3. Loop at most 6 model calls:
-   - Stream the response.
-   - If it has tool calls: emit events, run all tool calls, append the results, continue. Any content that call streamed was narration ("I'll look up…"), not the answer: emit `answer_reset` if some of it was already sent, re-emit it as `thinking`, and drop it from the answer.
-   - If not: it's the answer, stop.
-4. On the 6th call, send no tools so the model has to answer with what it has.
-5. Reasoning:
-   - On Bedrock gpt-oss, reasoning arrives inline at the start of `delta.content` as `<reasoning>…</reasoning>`. There is no separate field.
-   - Strip the tags with a small buffering parser, because a tag can be split across chunks.
-   - Also accept `delta.reasoning_content` / `delta.reasoning` so other providers work.
-   - Reasoning text becomes `thinking` events and is never stored in `answer`.
-   - Tool calls arrive in `delta.tool_calls`; on Bedrock the whole call came in one chunk. Accumulate by `index` anyway, since other providers stream arguments in pieces.
-6. Citations:
-   - Normalize `【n†…】` and `[n†…]` to `[n]`.
-   - Remove any `[n]` that doesn't match a source from this turn.
-7. Persist `answer` and `sources`. Only sources actually cited, plus every URL opened, go into `sources`.
-8. Emit `done`.
-9. Fire `extractClaims(turnId)` without awaiting it.
+3. Run the model once. Claude Code owns the tool loop; we own the tools.
+   - `runTurn` hands the model a `callTool(name, args)` callback. The model registers it under a random run id and starts the CLI with `--mcp-config` pointing at `http://127.0.0.1:PORT/mcp/<id>`.
+   - Tool calls arrive as MCP `tools/call` requests, run `web_search` / `open_page` in this process, and push `search` / `open` events into the same queue the model's stdout feeds. `runTurn` drains that queue, so tool progress streams while the CLI waits.
+   - Every tool result ends with the tool footer (today's date, the question).
+   - At most 5 tool calls. Further calls get "No more lookups this turn. Answer now…" instead of running.
+   - Text streamed before a tool call is narration: emit `answer_reset` if some of it was sent, re-emit it as `thinking`, and drop it from the answer.
+   - When the client hangs up, the run is aborted and the CLI killed.
+4. Model events come from `--output-format stream-json --verbose --include-partial-messages`:
+   - `text_delta` -> answer text, `thinking_delta` -> `thinking`, `content_block_start` of a `tool_use` -> narration retraction.
+   - The final `result` line with `is_error` becomes an `error` event.
+5. Citations: normalize stray formats to `[n]`, remove any `[n]` that doesn't match a source from this turn. `cleanAnswer` also turns dashes into commas or hyphens.
+6. Persist `answer` and `sources`. Only sources actually cited, plus every URL opened, go into `sources`.
+7. Emit `done`.
+8. Fire `extractClaims(turnId)` without awaiting it.
 
-Model params: `reasoning_effort: LLM_EFFORT`, `stream: true`, `max_tokens: 4000`. One retry on 429/5xx with a 1s backoff. Any other error emits an `error` event and stores whatever partial answer exists.
+Process: one `claude -p` per turn, 120s timeout. Flags: `--strict-mcp-config --setting-sources "" --no-session-persistence --tools "" --allowedTools mcp__minimi__web_search mcp__minimi__open_page --model --effort`. The system prompt goes in a temp file (`--system-prompt-file`, the ledger can outgrow a Windows command line), the prompt on stdin. Env drops every inherited `CLAUDE*` / `ANTHROPIC*` var and sets `CLAUDE_CONFIG_DIR` and `CLAUDE_CODE_OAUTH_TOKEN`. Working dir is an empty folder under the OS temp dir, outside any project, so no CLAUDE.md is picked up. On Windows the binary is the native `claude.exe` behind npm's `.cmd` shim, spawned without a shell.
+
+`--safe-mode` is not used: it disables MCP servers too, which removes our tools.
 
 ## SSE events (`POST /api/chat` -> `text/event-stream`)
 
@@ -158,7 +158,7 @@ Other routes:
 
 `buildMessages()` order:
 
-The instructions and ledger go in a `developer` message. Harmony puts app instructions there, and on Bedrock a chat `system` message outranked `developer` in a conflict test (4/4), so it lands in harmony's meta slot instead.
+The instructions and ledger go in a `developer` message, which becomes the CLI's system prompt. The CLI takes one user prompt, so chat history is flattened into a transcript (`Person:` / `minimi:`) above the current message.
 
 1. **System prompt** (static constant). Contains:
    - **Voice:** a sharp, warm friend who knows the topic. Lead with the direct answer. Explain what it means for this person in plain prose. Bullets only for real side-by-side comparisons. No headers in short answers, minimal bold, no "Great question". Match the user's length and tone. Chit-chat gets a short reply with no search.
@@ -182,15 +182,14 @@ Timezone: everything is stored in UTC and rendered in the request's `tz`. If `tz
 
 ## Memory write path (`extractClaims`)
 
-- One low-effort, non-streaming call that offers a single internal function, `save_memory`, with `tool_choice: "required"`. This function belongs to the harness and the chat model never sees it.
-  - `response_format` is not used. Bedrock gpt-oss ignored `json_schema` and returned malformed JSON in 3 of 4 tests, while the forced function call gave valid JSON 4 of 4 times in ~0.6s.
+- One `claude -p --output-format json --tools "" --json-schema <schema>` call. The parsed object comes back in `structured_output`.
 - Input: the question, the answer, and the turn's source list.
-- Arguments: `{ topic, entities: string[], claims: { entity, fact, value, source_url }[] }`, at most 6 claims. The prompt asks for bare values ("$15/month").
+- Schema: `{ topic, entities: string[], claims: { entity, fact, value, source_url }[] }`, at most 6 claims. The prompt asks for bare values ("$15/month").
 - Code keeps a claim only if:
   - its `source_url` is in this turn's `sources`, and
   - every number in `value` appears in `answer`. Numbers are compared rather than the whole string, because the model sometimes writes "$15/month (dropped from $19/month)".
 - `fetched_at` comes from the source record.
-- If there's no tool call or the arguments don't parse, retry once. Then leave `topic`/`entities` null and log it.
+- If the call fails or the shape is wrong, retry once. Then leave `topic`/`entities` null and log it.
 - Claims are never edited later. A verification turn writes its own new claims.
 
 ## UI (`public/index.html`)
@@ -204,6 +203,7 @@ Timezone: everything is stored in UTC and rendered in the request's `tz`. If `tz
 - The answer streams in as markdown. Keep the renderer tiny and inline: paragraphs, lists, bold, links, code.
 - `[n]` renders as a small clickable superscript. A sources row under the answer shows favicon, domain and title.
 - Sends `tz` from `Intl.DateTimeFormat().resolvedOptions().timeZone`.
+- Every `/api` call carries `Authorization: Bearer <token>` from localStorage. On a 401 the page prompts for the token once and retries.
 
 ## Tests (`node:test`, no network)
 
@@ -211,15 +211,29 @@ Timezone: everything is stored in UTC and rendered in the request's `tz`. If `tz
 - `renderLedger`: a full line, a line with failed extraction, the truncation rule, the empty ledger.
 - Claim validation: keeps a grounded claim; drops one with an unknown URL; drops one whose value isn't in the answer.
 - Citation normalization: `【3†L1-L2】` becomes `[3]`, and a dangling `[9]` is removed.
-- Reasoning stripping across chunk boundaries.
-- `runTurn` with a fake LLM and fake tools: a tool round then an answer; events come in the right order; the turn is persisted; a stored URL is opened live.
+- `flatten` (system prompt + transcript) and `parseLine` (stream-json to model events).
+- `runTurn` with a fake model that calls back into the harness: tool calls then an answer; events come in the right order; the turn is persisted; a stored URL is opened live; the tool budget; narration retraction; failure keeps the partial answer.
 
-## Verified (12 Nov 2026, ap-south-1)
+## Verified
 
-1. **Bearer auth works.** I tested a Bearer token on `bedrock-runtime.ap-south-1.amazonaws.com/openai/v1/chat/completions`, and the IAM user has `bedrock:CallWithBearerToken`. A non-streaming call came back in 0.35s.
-2. **Streaming works.** A tool call came back in 0.6s, with reasoning as inline `<reasoning>` tags. Details in Agent loop step 5.
-3. **Exa works as written above.** `lite` search, `startPublishedDate`, `/contents` focused highlights, and live crawl with provenance in `statuses` all behaved as described in the Tools section.
-4. **JSON extraction works through a forced function call, not `response_format`.** Details in the memory write path.
+Claude Code 2.1.322, 13 Nov 2026:
+
+1. **Our HTTP MCP endpoint works with plain JSON responses.** The CLI probes `server/discover` (we return -32601), then `initialize`, `notifications/initialized`, a `GET` (we return 405), `tools/list`, `tools/call`. Tool use came back in ~10s wall time for one search round.
+2. **`--tools ""` removes every built-in tool while MCP tools stay.** Asked to list files and run `whoami`, the model said it had no shell tool.
+3. **`--safe-mode` disables MCP servers**, so it can't be used.
+4. **`--json-schema` returns `structured_output`** with the parsed object, ~2s.
+5. **Exa works** as described in the Tools section (verified 12 Nov).
+
+## Running it for reviewers
+
+The server runs on the owner's PC and is exposed over a tunnel while reviewers test.
+
+1. `cmd /c "set CLAUDE_CONFIG_DIR=C:\claude-agent-cfg&& claude setup-token"`, put the token in `.env`.
+2. Set `AGENT_API_TOKEN` and share it with reviewers.
+3. `npm run dev`, then `cloudflared tunnel --url http://localhost:3000`.
+4. PC set to never sleep. When reviewers are done: stop the tunnel, stop the server, revoke the token.
+
+`/mcp/<id>` is reachable through the tunnel but only exists while a run is in flight, under a random UUID.
 
 ## Deferred
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { setImmediate as tick } from 'node:timers/promises';
 import { runTurn, cleanAnswer, type AgentEvent } from '../src/agent.ts';
 import { openDb, startTurn, finishTurn } from '../src/memory.ts';
-import type { Chunk, LLM } from '../src/llm.ts';
+import type { Message, Model } from '../src/llm.ts';
 import type { Book, Tools } from '../src/tools.ts';
 
 test('cleanAnswer: gpt-oss markers become [n], unknown and repeated ones go, odd unicode is normalized', () => {
@@ -57,35 +57,36 @@ test('cleanAnswer: narrow and non-breaking spaces inside numbers are fixed, not 
   );
 });
 
-const call = (name: string, args: object): Chunk => ({
-  kind: 'tools',
-  calls: [
-    { id: `call_${name}`, type: 'function', function: { name, arguments: JSON.stringify(args) } },
-  ],
-});
+type Step = { kind: 'thinking' | 'text'; text: string } | { tool: string; args: object };
+type Run = { messages: Message[]; effort?: string; toolResults: string[] };
 
-function fakeLLM(script: Chunk[][], extraction?: object) {
-  const bodies: any[] = [];
-  const llm: LLM = {
-    async *stream(body) {
-      bodies.push(structuredClone(body));
-      yield* script[bodies.length - 1] ?? script.at(-1)!;
-    },
-    async complete() {
-      return {
-        choices: [
-          {
-            message: {
-              tool_calls: [
-                { function: { name: 'save_memory', arguments: JSON.stringify(extraction) } },
-              ],
-            },
-          },
-        ],
+const call = (tool: string, args: object): Step => ({ tool, args });
+const text = (t: string): Step => ({ kind: 'text', text: t });
+
+// Plays a script of steps the way the CLI would: text and thinking stream out,
+// and each tool step yields a tool event, then calls back into the harness.
+function fakeModel(script: Step[], extraction?: object) {
+  const runs: Run[] = [];
+  const model: Model = {
+    async *run(messages, callTool, opts = {}) {
+      const run: Run = {
+        messages: structuredClone(messages),
+        effort: opts.effort,
+        toolResults: [],
       };
+      runs.push(run);
+      for (const step of script) {
+        if ('tool' in step) {
+          yield { kind: 'tool' };
+          run.toolResults.push(await callTool(step.tool, step.args as Record<string, unknown>));
+        } else yield step;
+      }
+    },
+    async json() {
+      return extraction;
     },
   };
-  return { llm, bodies };
+  return { model, runs };
 }
 
 const add = (book: Book, url: string, title: string, opened: boolean, text = '') =>
@@ -144,17 +145,13 @@ test('runTurn: tool rounds, streamed answer, persistence, live re-open, extracti
     "INSERT INTO claims (turn_id, entity, fact, value, source_url, fetched_at) VALUES (?, 'Neon', 'Launch price', '$19/month', 'https://neon.com/pricing', '2026-11-10T08:32:00.000Z')"
   ).run(past.turnId);
 
-  const { llm, bodies } = fakeLLM(
+  const { model, runs } = fakeModel(
     [
-      [
-        { kind: 'reasoning', text: 'Re-open the stored page.' },
-        call('open_page', { urls: ['https://neon.com/pricing'], focus: 'Launch price' }),
-      ],
-      [call('web_search', { queries: ['Neon pricing change'], since: '2026-11-10' })],
-      [
-        { kind: 'content', text: '\nStill $19/month 【' },
-        { kind: 'content', text: '1†L3-L5】 per Neon [2], nothing new [7].' },
-      ],
+      { kind: 'thinking', text: 'Re-open the stored page.' },
+      call('open_page', { urls: ['https://neon.com/pricing'], focus: 'Launch price' }),
+      call('web_search', { queries: ['Neon pricing change'], since: '2026-11-10' }),
+      text('\nStill $19/month 【'),
+      text('1†L3-L5】 per Neon [2], nothing new [7].'),
     ],
     {
       topic: 'Neon pricing',
@@ -173,7 +170,7 @@ test('runTurn: tool rounds, streamed answer, persistence, live re-open, extracti
 
   const events: AgentEvent[] = [];
   for await (const e of runTurn(
-    { db, llm, tools, now: () => new Date('2026-11-12T11:10:00Z') },
+    { db, model, tools, now: () => new Date('2026-11-12T11:10:00Z') },
     { message: 'Is that still right?', tz: 'Asia/Kolkata' }
   ))
     events.push(e);
@@ -200,11 +197,12 @@ test('runTurn: tool rounds, streamed answer, persistence, live re-open, extracti
     }
   );
 
-  assert.equal(bodies.length, 3);
-  assert.equal(bodies[0].messages[0].role, 'developer');
-  assert.match(bodies[0].messages[0].content, /\] "Neon pricing\?"/);
-  assert.doesNotMatch(bodies[0].messages[0].content.split('# Log of past questions')[1], /\$19/);
-  const tail = bodies[0].messages.at(-1).content;
+  assert.equal(runs.length, 1);
+  const { messages } = runs[0];
+  assert.equal(messages[0].role, 'developer');
+  assert.match(messages[0].content, /\] "Neon pricing\?"/);
+  assert.doesNotMatch(messages[0].content.split('# Log of past questions')[1], /\$19/);
+  const tail = messages.at(-1)!.content;
   assert.match(
     tail,
     /^Now: Thu 12 Nov 2026 16:40 \(Asia\/Kolkata\)\nLast 14 days:\nThu 12 Nov = 2026-11-12 \(today\)/
@@ -213,16 +211,19 @@ test('runTurn: tool rounds, streamed answer, persistence, live re-open, extracti
     tail,
     /Saved findings[\s\S]*- Neon \| Launch price: \$19\/month \(as of 10 Nov, https:\/\/neon\.com\/pricing\)\n\nIs that still right\?\n\n\(Reply to this message only/
   );
-  const toolMsgs = bodies[2].messages.filter((m: any) => m.role === 'tool');
-  assert.equal(toolMsgs.length, 2);
+  const { toolResults } = runs[0];
+  assert.equal(toolResults.length, 2);
   assert.ok(
-    toolMsgs.every((m: any) =>
-      m.content.endsWith(
+    toolResults.every((t) =>
+      t.endsWith(
         'Reply only to: "Is that still right?". If the answer hangs on an exact figure that only a snippet or a third-party site gives, open the official page first.)'
       )
     )
   );
-  assert.match(toolMsgs[0].content, /\(Today is Thu 12 Nov 2026\./);
+  assert.match(
+    toolResults[0],
+    /^\[1\] Neon pricing \(neon\.com, live\)[\s\S]*\(Today is Thu 12 Nov 2026\./
+  );
 
   const row = db.prepare('SELECT answer, sources FROM turns WHERE id = 2').get() as {
     answer: string;
@@ -255,65 +256,53 @@ test('runTurn: a question that does not refer to the past gets no saved findings
   db.prepare(
     "INSERT INTO claims (turn_id, entity, fact, value, source_url, fetched_at) VALUES (?, 'Neon', 'Launch price', '$47/month', 'https://neon.com/pricing', '2026-11-10T08:32:00.000Z')"
   ).run(past.turnId);
-  const { llm, bodies } = fakeLLM([[{ kind: 'content', text: 'Hi.' }]], {
+  const { model, runs } = fakeModel([text('Hi.')], {
     topic: 't',
     entities: [],
     claims: [],
   });
   for await (const _ of runTurn(
-    { db, llm, tools: fakeTools().tools },
+    { db, model, tools: fakeTools().tools },
     { message: 'what does neon cost', tz: 'UTC' }
   ));
-  assert.ok(bodies[0].messages.every((m: any) => !/\$47|Saved findings from past/.test(m.content)));
+  assert.ok(runs[0].messages.every((m) => !/\$47|Saved findings from past/.test(m.content)));
 });
 
-test('runTurn: the sixth call drops tools and tool history, and its tool calls are ignored', async () => {
+test('runTurn: tool calls past the budget are refused and effort reaches the model', async () => {
   const db = openDb(':memory:');
-  const { llm, bodies } = fakeLLM(
+  const { model, runs } = fakeModel(
     [
-      ...Array.from({ length: 5 }, () => [call('web_search', { queries: ['x'] })]),
-      [{ kind: 'content', text: 'Best I can tell, x.' }, call('web_search', { queries: ['y'] })],
+      ...Array.from({ length: 7 }, () => call('web_search', { queries: ['x'] })),
+      text('Best I can tell, x.'),
     ],
     { topic: 't', entities: [], claims: [] }
   );
   const events: AgentEvent[] = [];
   for await (const e of runTurn(
-    { db, llm, tools: fakeTools().tools },
+    { db, model, tools: fakeTools().tools },
     { message: 'q', tz: 'UTC', effort: 'high' }
   ))
     events.push(e);
-  assert.equal(bodies.length, 6);
-  assert.ok(bodies.every((b) => b.reasoning_effort === 'high'));
-  assert.ok(bodies.slice(0, 5).every((b) => b.tools));
-  assert.equal(bodies[5].tools, undefined);
-  assert.ok(bodies[5].messages.every((m: any) => m.role !== 'tool' && !m.tool_calls));
-  assert.match(
-    bodies[5].messages.at(-1).content,
-    /^Your research for this question is finished[\s\S]*\[2\] Neon news/
-  );
-  assert.match(
-    bodies[5].messages.at(-1).content,
-    /You have no tools now[^\n]*never say you are going to search or open/
-  );
+  assert.equal(runs[0].effort, 'high');
   assert.equal(events.filter((e) => e.type === 'search').length, 5);
+  assert.match(runs[0].toolResults[5], /^No more lookups this turn/);
+  assert.match(runs[0].toolResults[6], /^No more lookups this turn/);
   assert.equal(events.at(-1)?.type, 'done');
 });
 
 test('runTurn: narration streamed before a tool call is retracted into thinking, not stored as the answer', async () => {
   const db = openDb(':memory:');
-  const { llm } = fakeLLM(
+  const { model } = fakeModel(
     [
-      [
-        { kind: 'content', text: "I'll look up Neon pricing. " },
-        call('web_search', { queries: ['neon pricing'] }),
-      ],
-      [{ kind: 'content', text: 'Neon Launch is usage-based [1].' }],
+      text("I'll look up Neon pricing. "),
+      call('web_search', { queries: ['neon pricing'] }),
+      text('Neon Launch is usage-based [1].'),
     ],
     { topic: 't', entities: [], claims: [] }
   );
   const events: AgentEvent[] = [];
   for await (const e of runTurn(
-    { db, llm, tools: fakeTools().tools },
+    { db, model, tools: fakeTools().tools },
     { message: 'neon price?', tz: 'UTC' }
   ))
     events.push(e);
@@ -331,18 +320,14 @@ test('runTurn: narration streamed before a tool call is retracted into thinking,
 
 test('runTurn: a dash split across chunks streams the same text that gets stored', async () => {
   const db = openDb(':memory:');
-  const { llm } = fakeLLM(
-    [
-      [
-        { kind: 'content', text: 'Takes 5 –' },
-        { kind: 'content', text: ' 6 days — roughly.' },
-      ],
-    ],
-    { topic: 't', entities: [], claims: [] }
-  );
+  const { model } = fakeModel([text('Takes 5 –'), text(' 6 days — roughly.')], {
+    topic: 't',
+    entities: [],
+    claims: [],
+  });
   const events: AgentEvent[] = [];
   for await (const e of runTurn(
-    { db, llm, tools: fakeTools().tools },
+    { db, model, tools: fakeTools().tools },
     { message: 'how long', tz: 'UTC' }
   ))
     events.push(e);
@@ -354,19 +339,22 @@ test('runTurn: a dash split across chunks streams the same text that gets stored
   );
 });
 
-test('runTurn: an LLM failure emits error and keeps the partial answer', async () => {
+test('runTurn: a model failure emits error and keeps the partial answer', async () => {
   const db = openDb(':memory:');
-  const llm: LLM = {
-    async *stream() {
-      yield { kind: 'content', text: 'Partial' };
-      throw new Error('LLM 500: boom');
+  const model: Model = {
+    async *run() {
+      yield { kind: 'text', text: 'Partial' };
+      throw new Error('The model process failed.');
     },
-    async complete() {},
+    async json() {},
   };
   const events: AgentEvent[] = [];
-  for await (const e of runTurn({ db, llm, tools: fakeTools().tools }, { message: 'q', tz: 'UTC' }))
+  for await (const e of runTurn(
+    { db, model, tools: fakeTools().tools },
+    { message: 'q', tz: 'UTC' }
+  ))
     events.push(e);
-  assert.deepEqual(events.at(-1), { type: 'error', message: 'LLM 500: boom' });
+  assert.deepEqual(events.at(-1), { type: 'error', message: 'The model process failed.' });
   assert.equal(
     (db.prepare('SELECT answer FROM turns').get() as { answer: string }).answer,
     'Partial'
