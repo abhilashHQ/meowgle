@@ -1,396 +1,1022 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>minimi</title>
-<style>
-  :root {
-    --bg: #fbfaf8; --panel: #f3f1ed; --text: #1d1c1a; --muted: #75716a; --faint: #a8a39a;
-    --line: #e7e3dc; --accent: #3a5bc7; --q: #efece6; --err: #b3261e;
-    --sans: ui-sans-serif, -apple-system, "Segoe UI", Inter, Roboto, sans-serif;
-    --mono: ui-monospace, "SF Mono", Consolas, monospace;
-  }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; }
-  body { background: var(--bg); color: var(--text); font: 15.5px/1.6 var(--sans); display: flex; }
-  button { font: inherit; cursor: pointer; }
-
-  aside { width: 248px; flex-shrink: 0; border-right: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; padding: 14px 10px; gap: 10px; }
-  .brand { font-weight: 650; letter-spacing: -0.01em; padding: 2px 8px 6px; }
-  #new { border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 7px 10px; text-align: left; color: var(--text); }
-  #new:hover { border-color: var(--faint); }
-  #convs { overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
-  #convs a { display: block; padding: 6px 8px; border-radius: 6px; color: var(--muted); text-decoration: none; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #convs a:hover { background: var(--q); color: var(--text); }
-  #convs a.on { background: var(--q); color: var(--text); }
-
-  main { flex: 1; display: flex; flex-direction: column; min-width: 0; height: 100%; }
-  #scroll { flex: 1; overflow-y: auto; }
-  #thread { max-width: 740px; margin: 0 auto; padding: 32px 20px 24px; }
-  .empty { margin-top: 22vh; text-align: center; color: var(--muted); }
-  .empty h1 { font-size: 26px; font-weight: 600; color: var(--text); letter-spacing: -0.02em; margin: 0 0 6px; }
-
-  .turn { margin-bottom: 36px; }
-  .q { background: var(--q); border-radius: 14px; padding: 10px 15px; margin-left: auto; width: fit-content; max-width: 85%; white-space: pre-wrap; word-wrap: break-word; }
-  .when { font-size: 12px; color: var(--faint); text-align: right; margin: 4px 4px 14px; }
-
-  details.trail { margin: 0 0 10px; color: var(--muted); font-size: 13.5px; }
-  details.trail > summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 6px; user-select: none; }
-  details.trail > summary::-webkit-details-marker { display: none; }
-  details.trail > summary::after { content: "›"; font-size: 15px; transition: transform .15s; }
-  details.trail[open] > summary::after { transform: rotate(90deg); }
-  .steps { margin: 8px 0 0 3px; border-left: 1px solid var(--line); padding-left: 14px; display: flex; flex-direction: column; gap: 6px; }
-  .step { position: relative; }
-  .step::before { content: ""; position: absolute; left: -18px; top: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
-  .step.active::before { background: var(--accent); animation: pulse 1s ease-in-out infinite; }
-  .step .sub { color: var(--faint); font-size: 12.5px; }
-  .step details summary { cursor: pointer; }
-  .step pre { white-space: pre-wrap; font: 12.5px/1.5 var(--sans); color: var(--faint); margin: 4px 0 0; max-height: 220px; overflow-y: auto; }
-  @keyframes pulse { 50% { opacity: .3; } }
-
-  .a { word-wrap: break-word; }
-  .a > :first-child { margin-top: 0; }
-  .a p, .a ul, .a ol, .a table, .a pre { margin: 0 0 12px; }
-  .a ul, .a ol { padding-left: 22px; }
-  .a li { margin: 3px 0; }
-  .a h3, .a h4 { font-size: 15.5px; margin: 18px 0 6px; }
-  .a code { font: 13.5px var(--mono); background: var(--q); padding: 1px 5px; border-radius: 4px; }
-  .a pre { background: var(--q); padding: 12px; border-radius: 8px; overflow-x: auto; }
-  .a pre code { background: none; padding: 0; }
-  .a a { color: var(--accent); text-decoration: none; }
-  .a a:hover { text-decoration: underline; }
-  .a table { border-collapse: collapse; font-size: 14px; display: block; overflow-x: auto; }
-  .a th, .a td { border-bottom: 1px solid var(--line); padding: 6px 12px 6px 0; text-align: left; vertical-align: top; }
-  .a th { font-weight: 600; }
-  sup.cite { font-size: 11px; line-height: 0; margin-left: 1px; }
-  sup.cite a { display: inline-block; min-width: 16px; padding: 0 4px; border-radius: 8px; background: var(--q); color: var(--muted) !important; text-align: center; }
-  sup.cite a:hover { background: var(--line); text-decoration: none !important; }
-  .cursor::after { content: ""; display: inline-block; width: 7px; height: 15px; background: var(--faint); margin-left: 2px; vertical-align: -2px; animation: pulse 1s infinite; }
-
-  .sources { display: flex; gap: 6px; margin-top: 4px; overflow: hidden; }
-  .sources.open { flex-wrap: wrap; }
-  .sources a, .sources button { display: flex; flex-shrink: 0; min-width: 0; align-items: center; gap: 6px; max-width: 240px; padding: 4px 9px 4px 6px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); text-decoration: none; font: 12.5px var(--sans); background: var(--bg); }
-  .sources a { flex-shrink: 1; }
-  .sources img { flex-shrink: 0; }
-  .sources button { padding: 4px 9px; cursor: pointer; white-space: nowrap; }
-  .sources a:hover, .sources button:hover { border-color: var(--faint); color: var(--text); }
-  .sources img { width: 14px; height: 14px; border-radius: 3px; }
-  .sources span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .sources b { font-weight: 500; color: var(--faint); }
-  .error { color: var(--err); font-size: 14px; margin-top: 8px; }
-  .meta { color: var(--faint); font-size: 12px; margin-top: 8px; }
-
-  form { max-width: 740px; width: 100%; margin: 0 auto; padding: 0 20px 20px; }
-  .box { display: flex; align-items: flex-end; gap: 8px; border: 1px solid var(--line); border-radius: 16px; background: #fff; padding: 8px 8px 8px 16px; box-shadow: 0 1px 2px rgba(0,0,0,.03), 0 4px 16px rgba(0,0,0,.03); }
-  .box:focus-within { border-color: var(--faint); }
-  textarea { flex: 1; border: 0; outline: 0; resize: none; font: inherit; background: transparent; color: var(--text); padding: 6px 0; max-height: 200px; }
-  #effort { border: 0; background: transparent; color: var(--muted); font: 13px var(--sans); height: 34px; padding: 0 4px; border-radius: 8px; cursor: pointer; outline: 0; }
-  #effort:hover, #effort:focus-visible { background: var(--q); color: var(--text); }
-  #send { border: 0; background: var(--text); color: #fff; border-radius: 10px; width: 34px; height: 34px; font-size: 16px; }
-  #send:disabled { background: var(--line); cursor: default; }
-
-  @media (max-width: 760px) {
-    body { flex-direction: column; }
-    aside { width: auto; flex-direction: row; align-items: center; border-right: 0; border-bottom: 1px solid var(--line); padding: 8px 12px; }
-    #convs { display: none; }
-    .brand { padding: 0; margin-right: auto; }
-  }
-</style>
-</head>
-<body>
-<aside>
-  <div class="brand">minimi</div>
-  <button id="new" type="button">New chat</button>
-  <nav id="convs"></nav>
-</aside>
-<main>
-  <div id="scroll"><div id="thread"></div></div>
-  <form id="composer">
-    <div class="box">
-      <textarea id="input" rows="1" placeholder="Ask anything" autofocus></textarea>
-      <select id="effort" title="Reasoning effort" aria-label="Reasoning effort">
-        <option value="low">Low effort</option>
-        <option value="medium">Medium effort</option>
-        <option value="high">High effort</option>
-      </select>
-      <button id="send" type="submit" aria-label="Send">↑</button>
-    </div>
-  </form>
-</main>
-<script>
-const $ = (s) => document.querySelector(s);
-const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
-const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u; } };
-const fmtWhen = (iso) => new Date(iso).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-let conversationId = location.hash.slice(1) || null;
-let busy = false;
-
-function esc(s) { return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
-
-function inline(s, sources) {
-  const codes = [];
-  s = esc(s).replace(/`([^`]+)`/g, (_, c) => `\u0000${codes.push(c) - 1}\u0000`);
-  s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>')
-    .replace(/\[(\d+)\]/g, (_, n) => {
-      const src = sources[n];
-      return src ? `<sup class="cite"><a href="${esc(src.url)}" target="_blank" rel="noopener" title="${esc(src.title)}">${n}</a></sup>` : `<sup class="cite"><a>${n}</a></sup>`;
-    });
-  return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[i]}</code>`);
-}
-
-function markdown(md, sources = {}) {
-  const lines = md.split('\n');
-  let html = '', i = 0;
-  const isTable = (l) => /^\s*\|.*\|\s*$/.test(l);
-  const cells = (l) => l.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
-  while (i < lines.length) {
-    const line = lines[i];
-    if (/^```/.test(line)) {
-      const code = [];
-      while (++i < lines.length && !/^```/.test(lines[i])) code.push(lines[i]);
-      html += `<pre><code>${esc(code.join('\n'))}</code></pre>`; i++;
-    } else if (/^#{1,6}\s/.test(line)) {
-      html += `<h4>${inline(line.replace(/^#+\s/, ''), sources)}</h4>`; i++;
-    } else if (isTable(line) && /^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1] || '')) {
-      html += '<table><tr>' + cells(line).map((c) => `<th>${inline(c, sources)}</th>`).join('') + '</tr>';
-      i += 2;
-      while (i < lines.length && isTable(lines[i])) html += '<tr>' + cells(lines[i++]).map((c) => `<td>${inline(c, sources)}</td>`).join('') + '</tr>';
-      html += '</table>';
-    } else if (/^\s*([-*]|\d+\.)\s/.test(line)) {
-      const tag = /^\s*\d+\./.test(line) ? 'ol' : 'ul';
-      html += `<${tag}>`;
-      while (i < lines.length && /^\s*([-*]|\d+\.)\s/.test(lines[i])) html += `<li>${inline(lines[i++].replace(/^\s*([-*]|\d+\.)\s/, ''), sources)}</li>`;
-      html += `</${tag}>`;
-    } else if (!line.trim()) {
-      i++;
-    } else {
-      const para = [];
-      while (i < lines.length && lines[i].trim() && !/^(```|#{1,6}\s|\s*([-*]|\d+\.)\s|\s*\|)/.test(lines[i])) para.push(lines[i++]);
-      if (!para.length) para.push(lines[i++]);
-      html += `<p>${inline(para.join('\n'), sources).replace(/\n/g, '<br>')}</p>`;
-    }
-  }
-  return html;
-}
-
-function sourceChip(s, withTitle) {
-  const a = el('a'); a.href = s.url; a.target = '_blank'; a.rel = 'noopener'; a.title = s.title;
-  const img = el('img'); img.src = `https://www.google.com/s2/favicons?domain=${host(s.url)}&sz=32`; img.alt = '';
-  const label = el('span'); label.append(el('b', '', `${s.n} `), withTitle ? `${host(s.url)} · ${s.title}` : host(s.url));
-  a.append(img, label);
-  return a;
-}
-
-function renderSources(box, list, top = 3) {
-  box.classList.remove('open');
-  box.replaceChildren(...list.slice(0, top).map((s) => sourceChip(s, false)));
-  if (list.length <= top) return;
-  const more = el('button', '', `+${list.length - top} more`);
-  more.type = 'button';
-  more.onclick = () => {
-    box.classList.add('open');
-    box.replaceChildren(...list.map((s) => sourceChip(s, true)));
-  };
-  box.append(more);
-}
-
-function turnView(question, askedAt) {
-  const t = el('div', 'turn');
-  t.append(el('div', 'q', question), el('div', 'when', fmtWhen(askedAt)));
-  const answer = el('div', 'a');
-  const sources = el('div', 'sources');
-  t.append(answer, sources);
-  $('#thread').append(t);
-  return { t, answer, sources };
-}
-
-function stickToBottom(fn) {
-  const s = $('#scroll');
-  const near = s.scrollHeight - s.scrollTop - s.clientHeight < 120;
-  fn();
-  if (near) s.scrollTop = s.scrollHeight;
-}
-
-function showEmpty() {
-  const e = el('div', 'empty');
-  e.append(el('h1', '', 'What do you want to know?'), el('div', '', 'I search the web, cite what I find, and remember what you asked and when.'));
-  $('#thread').replaceChildren(e);
-}
-
-async function loadList() {
-  const list = await (await fetch('/api/conversations')).json();
-  $('#convs').replaceChildren(...list.map((c) => {
-    const a = el('a', c.id === conversationId ? 'on' : '', c.title || 'Untitled');
-    a.href = `#${c.id}`;
-    a.onclick = (e) => { e.preventDefault(); openConversation(c.id); };
-    return a;
-  }));
-}
-
-async function openConversation(id) {
-  if (busy) return;
-  conversationId = id;
-  history.replaceState(null, '', id ? `#${id}` : location.pathname);
-  $('#thread').replaceChildren();
-  if (!id) { showEmpty(); loadList(); return; }
-  const turns = await (await fetch(`/api/conversations/${id}`)).json();
-  if (!turns.length) { showEmpty(); }
-  for (const turn of turns) {
-    const v = turnView(turn.question, turn.asked_at);
-    const map = Object.fromEntries(turn.sources.map((s) => [s.n, s]));
-    v.answer.innerHTML = markdown(turn.answer || '', map);
-    const cited = new Set([...(turn.answer || '').matchAll(/\[(\d+)\]/g)].map((m) => +m[1]));
-    renderSources(v.sources, turn.sources.filter((s) => cited.has(s.n)));
-  }
-  $('#scroll').scrollTop = $('#scroll').scrollHeight;
-  loadList();
-}
-
-function trailView(container) {
-  const d = el('details', 'trail'); d.open = true;
-  const summary = el('summary', '', 'Working…');
-  const steps = el('div', 'steps');
-  d.append(summary, steps);
-  container.before(d);
-  let active = null, thinking = null, searches = 0, pages = 0;
-  const start = performance.now();
-  const step = (text) => {
-    if (active) active.classList.remove('active');
-    active = el('div', 'step active');
-    active.append(el('div', '', text));
-    steps.append(active);
-    thinking = null;
-    return active;
-  };
-  return {
-    thinking(text) {
-      if (!thinking) {
-        const s = step('');
-        const det = el('details');
-        det.append(el('summary', '', 'Thinking'), el('pre'));
-        s.firstChild.replaceWith(det);
-        thinking = det.querySelector('pre');
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>minimi</title>
+    <style>
+      :root {
+        --bg: #fbfaf8;
+        --panel: #f3f1ed;
+        --text: #1d1c1a;
+        --muted: #75716a;
+        --faint: #a8a39a;
+        --line: #e7e3dc;
+        --accent: #3a5bc7;
+        --q: #efece6;
+        --err: #b3261e;
+        --sans: ui-sans-serif, -apple-system, 'Segoe UI', Inter, Roboto, sans-serif;
+        --mono: ui-monospace, 'SF Mono', Consolas, monospace;
       }
-      thinking.textContent += text;
-    },
-    search(e) {
-      searches++;
-      step(`Searching${e.since ? ` since ${e.since}` : ''}: ${e.queries.join(' · ')}`);
-    },
-    searchDone(e) {
-      const more = e.domains.length > 4 ? ` +${e.domains.length - 4}` : '';
-      active?.append(el('div', 'sub', e.results ? `${e.results} results from ${e.domains.slice(0, 4).join(', ')}${more}` : 'No results'));
-    },
-    open(e) {
-      step(`Reading ${e.urls.length} page${e.urls.length > 1 ? 's' : ''}${e.live ? ' (live)' : ''}`)
-        .append(el('div', 'sub', e.urls.map(host).join(', ')));
-    },
-    openDone(e) {
-      pages += e.ok;
-      if (e.failed) active?.append(el('div', 'sub', `${e.failed} failed to load`));
-    },
-    finish() {
-      if (active) active.classList.remove('active');
-      const secs = ((performance.now() - start) / 1000).toFixed(1);
-      const bits = [];
-      if (searches) bits.push(`Searched ${searches === 1 ? 'once' : `${searches} times`}`);
-      if (pages) bits.push(`read ${pages} page${pages > 1 ? 's' : ''}`);
-      summary.textContent = bits.length ? `${bits.join(', ')} · ${secs}s` : `Thought for ${secs}s`;
-      if (!steps.children.length) d.remove();
-      d.open = false;
-    },
-    resume() {
-      if (!d.isConnected) container.before(d);
-      d.open = true;
-      summary.textContent = 'Working…';
-    },
-  };
-}
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+      }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font: 15.5px/1.6 var(--sans);
+        display: flex;
+      }
+      button {
+        font: inherit;
+        cursor: pointer;
+      }
 
-async function send(message) {
-  const effort = $('#effort').value;
-  busy = true;
-  $('#send').disabled = true;
-  if ($('.empty')) $('#thread').replaceChildren();
-  const v = turnView(message, new Date().toISOString());
-  const trail = trailView(v.answer);
-  let text = '', map = {}, answering = false;
-  v.answer.classList.add('cursor');
-  const paint = () => stickToBottom(() => { v.answer.innerHTML = markdown(text, map); });
+      aside {
+        width: 248px;
+        flex-shrink: 0;
+        border-right: 1px solid var(--line);
+        background: var(--panel);
+        display: flex;
+        flex-direction: column;
+        padding: 14px 10px;
+        gap: 10px;
+      }
+      .brand {
+        font-weight: 650;
+        letter-spacing: -0.01em;
+        padding: 2px 8px 6px;
+      }
+      #new {
+        border: 1px solid var(--line);
+        background: var(--bg);
+        border-radius: 8px;
+        padding: 7px 10px;
+        text-align: left;
+        color: var(--text);
+      }
+      #new:hover {
+        border-color: var(--faint);
+      }
+      #convs {
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+      }
+      #convs a {
+        display: block;
+        padding: 6px 8px;
+        border-radius: 6px;
+        color: var(--muted);
+        text-decoration: none;
+        font-size: 14px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      #convs a:hover {
+        background: var(--q);
+        color: var(--text);
+      }
+      #convs a.on {
+        background: var(--q);
+        color: var(--text);
+      }
 
-  const handle = (e) => {
-    if (e.type === 'start') {
-      if (!conversationId) { conversationId = e.conversationId; history.replaceState(null, '', `#${e.conversationId}`); loadList(); }
-    } else if (e.type === 'thinking') trail.thinking(e.text);
-    else if (e.type === 'search') trail.search(e);
-    else if (e.type === 'search_done') trail.searchDone(e);
-    else if (e.type === 'open') trail.open(e);
-    else if (e.type === 'open_done') trail.openDone(e);
-    else if (e.type === 'answer') {
-      if (!answering) { answering = true; trail.finish(); }
-      text += e.text; paint();
-    } else if (e.type === 'answer_reset') {
-      answering = false; text = ''; paint(); trail.resume();
-    } else if (e.type === 'sources') {
-      map = Object.fromEntries(e.sources.map((s) => [s.n, s]));
-      paint(); renderSources(v.sources, e.sources);
-    } else if (e.type === 'done') {
-      v.t.append(el('div', 'meta', `${(e.ms / 1000).toFixed(1)}s · ${effort} effort`));
-    } else if (e.type === 'error') {
-      v.t.append(el('div', 'error', `Something went wrong: ${e.message}`));
-    }
-    stickToBottom(() => {});
-  };
+      main {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        height: 100%;
+      }
+      #scroll {
+        flex: 1;
+        overflow-y: auto;
+      }
+      #thread {
+        max-width: 740px;
+        margin: 0 auto;
+        padding: 32px 20px 24px;
+      }
+      .empty {
+        margin-top: 22vh;
+        text-align: center;
+        color: var(--muted);
+      }
+      .empty h1 {
+        font-size: 26px;
+        font-weight: 600;
+        color: var(--text);
+        letter-spacing: -0.02em;
+        margin: 0 0 6px;
+      }
 
-  try {
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ conversationId, message, tz, effort }),
-    });
-    if (!res.ok) throw new Error((await res.json()).error || res.statusText);
-    const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
-    let buf = '';
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += value;
-      const frames = buf.split('\n\n');
-      buf = frames.pop();
-      for (const f of frames) if (f.startsWith('data: ')) handle(JSON.parse(f.slice(6)));
-    }
-  } catch (err) {
-    v.t.append(el('div', 'error', `Something went wrong: ${err.message}`));
-  } finally {
-    if (!answering) trail.finish();
-    v.answer.classList.remove('cursor');
-    busy = false;
-    $('#send').disabled = false;
-    loadList();
-    $('#input').focus();
-  }
-}
+      .turn {
+        margin-bottom: 36px;
+      }
+      .q {
+        background: var(--q);
+        border-radius: 14px;
+        padding: 10px 15px;
+        margin-left: auto;
+        width: fit-content;
+        max-width: 85%;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+      }
+      .when {
+        font-size: 12px;
+        color: var(--faint);
+        text-align: right;
+        margin: 4px 4px 14px;
+      }
 
-const input = $('#input');
-input.addEventListener('input', () => { input.style.height = 'auto'; input.style.height = `${input.scrollHeight}px`; });
-input.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('#composer').requestSubmit(); }
-});
-$('#composer').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const message = input.value.trim();
-  if (!message || busy) return;
-  input.value = ''; input.style.height = 'auto';
-  send(message);
-});
-try { $('#effort').value = localStorage.getItem('effort') || 'low'; } catch {}
-$('#effort').onchange = () => { try { localStorage.setItem('effort', $('#effort').value); } catch {} };
-$('#new').onclick = () => openConversation(null);
-openConversation(conversationId);
-</script>
-</body>
+      details.trail {
+        margin: 0 0 10px;
+        color: var(--muted);
+        font-size: 13.5px;
+      }
+      details.trail > summary {
+        cursor: pointer;
+        list-style: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        user-select: none;
+      }
+      details.trail > summary::-webkit-details-marker {
+        display: none;
+      }
+      details.trail > summary::after {
+        content: '›';
+        font-size: 15px;
+        transition: transform 0.15s;
+      }
+      details.trail[open] > summary::after {
+        transform: rotate(90deg);
+      }
+      .steps {
+        margin: 8px 0 0 3px;
+        border-left: 1px solid var(--line);
+        padding-left: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .step {
+        position: relative;
+      }
+      .step::before {
+        content: '';
+        position: absolute;
+        left: -18px;
+        top: 8px;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--faint);
+      }
+      .step.active::before {
+        background: var(--accent);
+        animation: pulse 1s ease-in-out infinite;
+      }
+      .step .sub {
+        color: var(--faint);
+        font-size: 12.5px;
+      }
+      .step details summary {
+        cursor: pointer;
+      }
+      .step pre {
+        white-space: pre-wrap;
+        font: 12.5px/1.5 var(--sans);
+        color: var(--faint);
+        margin: 4px 0 0;
+        max-height: 220px;
+        overflow-y: auto;
+      }
+      @keyframes pulse {
+        50% {
+          opacity: 0.3;
+        }
+      }
+
+      .a {
+        word-wrap: break-word;
+      }
+      .a > :first-child {
+        margin-top: 0;
+      }
+      .a p,
+      .a ul,
+      .a ol,
+      .a table,
+      .a pre {
+        margin: 0 0 12px;
+      }
+      .a ul,
+      .a ol {
+        padding-left: 22px;
+      }
+      .a li {
+        margin: 3px 0;
+      }
+      .a h3,
+      .a h4 {
+        font-size: 15.5px;
+        margin: 18px 0 6px;
+      }
+      .a code {
+        font: 13.5px var(--mono);
+        background: var(--q);
+        padding: 1px 5px;
+        border-radius: 4px;
+      }
+      .a pre {
+        background: var(--q);
+        padding: 12px;
+        border-radius: 8px;
+        overflow-x: auto;
+      }
+      .a pre code {
+        background: none;
+        padding: 0;
+      }
+      .a a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      .a a:hover {
+        text-decoration: underline;
+      }
+      .a table {
+        border-collapse: collapse;
+        font-size: 14px;
+        display: block;
+        overflow-x: auto;
+      }
+      .a th,
+      .a td {
+        border-bottom: 1px solid var(--line);
+        padding: 6px 12px 6px 0;
+        text-align: left;
+        vertical-align: top;
+      }
+      .a th {
+        font-weight: 600;
+      }
+      sup.cite {
+        font-size: 11px;
+        line-height: 0;
+        margin-left: 1px;
+      }
+      sup.cite a {
+        display: inline-block;
+        min-width: 16px;
+        padding: 0 4px;
+        border-radius: 8px;
+        background: var(--q);
+        color: var(--muted) !important;
+        text-align: center;
+      }
+      sup.cite a:hover {
+        background: var(--line);
+        text-decoration: none !important;
+      }
+      .cursor::after {
+        content: '';
+        display: inline-block;
+        width: 7px;
+        height: 15px;
+        background: var(--faint);
+        margin-left: 2px;
+        vertical-align: -2px;
+        animation: pulse 1s infinite;
+      }
+
+      .sources {
+        display: flex;
+        gap: 6px;
+        margin-top: 4px;
+        overflow: hidden;
+      }
+      .sources.open {
+        flex-wrap: wrap;
+      }
+      .sources a,
+      .sources button {
+        display: flex;
+        flex-shrink: 0;
+        min-width: 0;
+        align-items: center;
+        gap: 6px;
+        max-width: 240px;
+        padding: 4px 9px 4px 6px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        color: var(--muted);
+        text-decoration: none;
+        font: 12.5px var(--sans);
+        background: var(--bg);
+      }
+      .sources a {
+        flex-shrink: 1;
+      }
+      .sources img {
+        flex-shrink: 0;
+      }
+      .sources button {
+        padding: 4px 9px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .sources a:hover,
+      .sources button:hover {
+        border-color: var(--faint);
+        color: var(--text);
+      }
+      .sources img {
+        width: 14px;
+        height: 14px;
+        border-radius: 3px;
+      }
+      .sources span {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .sources b {
+        font-weight: 500;
+        color: var(--faint);
+      }
+      .error {
+        color: var(--err);
+        font-size: 14px;
+        margin-top: 8px;
+      }
+      .meta {
+        color: var(--faint);
+        font-size: 12px;
+        margin-top: 8px;
+      }
+
+      form {
+        max-width: 740px;
+        width: 100%;
+        margin: 0 auto;
+        padding: 0 20px 20px;
+      }
+      .box {
+        display: flex;
+        align-items: flex-end;
+        gap: 8px;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: #fff;
+        padding: 8px 8px 8px 16px;
+        box-shadow:
+          0 1px 2px rgba(0, 0, 0, 0.03),
+          0 4px 16px rgba(0, 0, 0, 0.03);
+      }
+      .box:focus-within {
+        border-color: var(--faint);
+      }
+      textarea {
+        flex: 1;
+        border: 0;
+        outline: 0;
+        resize: none;
+        font: inherit;
+        background: transparent;
+        color: var(--text);
+        padding: 6px 0;
+        max-height: 200px;
+      }
+      #effort {
+        border: 0;
+        background: transparent;
+        color: var(--muted);
+        font: 13px var(--sans);
+        height: 34px;
+        padding: 0 4px;
+        border-radius: 8px;
+        cursor: pointer;
+        outline: 0;
+      }
+      #effort:hover,
+      #effort:focus-visible {
+        background: var(--q);
+        color: var(--text);
+      }
+      #send {
+        border: 0;
+        background: var(--text);
+        color: #fff;
+        border-radius: 10px;
+        width: 34px;
+        height: 34px;
+        font-size: 16px;
+      }
+      #send:disabled {
+        background: var(--line);
+        cursor: default;
+      }
+
+      @media (max-width: 760px) {
+        body {
+          flex-direction: column;
+        }
+        aside {
+          width: auto;
+          flex-direction: row;
+          align-items: center;
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+          padding: 8px 12px;
+        }
+        #convs {
+          display: none;
+        }
+        .brand {
+          padding: 0;
+          margin-right: auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <aside>
+      <div class="brand">minimi</div>
+      <button id="new" type="button">New chat</button>
+      <nav id="convs"></nav>
+    </aside>
+    <main>
+      <div id="scroll"><div id="thread"></div></div>
+      <form id="composer">
+        <div class="box">
+          <textarea id="input" rows="1" placeholder="Ask anything" autofocus></textarea>
+          <select id="effort" title="Reasoning effort" aria-label="Reasoning effort">
+            <option value="low">Low effort</option>
+            <option value="medium">Medium effort</option>
+            <option value="high">High effort</option>
+          </select>
+          <button id="send" type="submit" aria-label="Send">↑</button>
+        </div>
+      </form>
+    </main>
+    <script>
+      // ---------------------------------------------------------------
+      // DOM helpers and shared state
+      // ---------------------------------------------------------------
+
+      const $ = (s) => document.querySelector(s);
+
+      const el = (tag, cls, text) => {
+        const e = document.createElement(tag);
+        if (cls) e.className = cls;
+        if (text != null) e.textContent = text;
+        return e;
+      };
+
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+      const host = (u) => {
+        try {
+          return new URL(u).hostname.replace(/^www\./, '');
+        } catch {
+          return u;
+        }
+      };
+
+      const fmtWhen = (iso) =>
+        new Date(iso).toLocaleString(undefined, {
+          weekday: 'short',
+          day: 'numeric',
+          month: 'short',
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+
+      let conversationId = location.hash.slice(1) || null;
+      let busy = false;
+
+      // ---------------------------------------------------------------
+      // Markdown rendering
+      // ---------------------------------------------------------------
+
+      function esc(s) {
+        return s.replace(
+          /[&<>"]/g,
+          (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]
+        );
+      }
+
+      // Inline markdown: `code`, links, **bold**, *em*, [n] citations. Code
+      // spans are parked in `codes` first so their content is never
+      // markdowned, then swapped back at the end.
+      function inline(s, sources) {
+        const codes = [];
+        s = esc(s).replace(/`([^`]+)`/g, (_, c) => `\u0000${codes.push(c) - 1}\u0000`);
+
+        s = s
+          .replace(
+            /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+            '<a href="$2" target="_blank" rel="noopener">$1</a>'
+          )
+          .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+          .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>')
+          .replace(/\[(\d+)\]/g, (_, n) => {
+            const src = sources[n];
+            return src
+              ? `<sup class="cite"><a href="${esc(src.url)}" target="_blank" rel="noopener" title="${esc(src.title)}">${n}</a></sup>`
+              : `<sup class="cite"><a>${n}</a></sup>`;
+          });
+
+        return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[i]}</code>`);
+      }
+
+      // Block-level markdown: fenced code, headings, tables, lists,
+      // paragraphs. One pass over the lines, each branch consumes its own
+      // lines and advances i.
+      function markdown(md, sources = {}) {
+        const lines = md.split('\n');
+        let html = '';
+        let i = 0;
+
+        const isTable = (l) => /^\s*\|.*\|\s*$/.test(l);
+        const cells = (l) =>
+          l
+            .trim()
+            .replace(/^\||\|$/g, '')
+            .split('|')
+            .map((c) => c.trim());
+
+        while (i < lines.length) {
+          const line = lines[i];
+
+          if (/^```/.test(line)) {
+            // fenced code block: collect until the closing fence
+            const code = [];
+            while (++i < lines.length && !/^```/.test(lines[i])) code.push(lines[i]);
+            html += `<pre><code>${esc(code.join('\n'))}</code></pre>`;
+            i++; // skip the closing fence
+          } else if (/^#{1,6}\s/.test(line)) {
+            // heading (rendered one level down, as h4)
+            html += `<h4>${inline(line.replace(/^#+\s/, ''), sources)}</h4>`;
+            i++;
+          } else if (isTable(line) && /^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1] || '')) {
+            // table: header row, then a |---|---| separator, then data rows
+            html +=
+              '<table><tr>' +
+              cells(line)
+                .map((c) => `<th>${inline(c, sources)}</th>`)
+                .join('') +
+              '</tr>';
+            i += 2;
+            while (i < lines.length && isTable(lines[i])) {
+              html +=
+                '<tr>' +
+                cells(lines[i++])
+                  .map((c) => `<td>${inline(c, sources)}</td>`)
+                  .join('') +
+                '</tr>';
+            }
+            html += '</table>';
+          } else if (/^\s*([-*]|\d+\.)\s/.test(line)) {
+            // list: consecutive list lines, ordered if the first is numbered
+            const tag = /^\s*\d+\./.test(line) ? 'ol' : 'ul';
+            html += `<${tag}>`;
+            while (i < lines.length && /^\s*([-*]|\d+\.)\s/.test(lines[i])) {
+              html += `<li>${inline(lines[i++].replace(/^\s*([-*]|\d+\.)\s/, ''), sources)}</li>`;
+            }
+            html += `</${tag}>`;
+          } else if (!line.trim()) {
+            // blank line
+            i++;
+          } else {
+            // paragraph: a run of plain lines until some other block starts
+            const para = [];
+            while (
+              i < lines.length &&
+              lines[i].trim() &&
+              !/^(```|#{1,6}\s|\s*([-*]|\d+\.)\s|\s*\|)/.test(lines[i])
+            ) {
+              para.push(lines[i++]);
+            }
+            if (!para.length) para.push(lines[i++]);
+            html += `<p>${inline(para.join('\n'), sources).replace(/\n/g, '<br>')}</p>`;
+          }
+        }
+        return html;
+      }
+
+      // ---------------------------------------------------------------
+      // Views
+      // ---------------------------------------------------------------
+
+      // One numbered source chip, linked to the page.
+      function sourceChip(s, withTitle) {
+        const a = el('a');
+        a.href = s.url;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.title = s.title;
+        const img = el('img');
+        img.src = `https://www.google.com/s2/favicons?domain=${host(s.url)}&sz=32`;
+        img.alt = '';
+        const label = el('span');
+        label.append(
+          el('b', '', `${s.n} `),
+          withTitle ? `${host(s.url)} · ${s.title}` : host(s.url)
+        );
+        a.append(img, label);
+        return a;
+      }
+
+      // The source row under an answer: first few chips, or all of them
+      // (with titles) behind a "+n more" button.
+      function renderSources(box, list, top = 3) {
+        box.classList.remove('open');
+        box.replaceChildren(...list.slice(0, top).map((s) => sourceChip(s, false)));
+        if (list.length <= top) return;
+        const more = el('button', '', `+${list.length - top} more`);
+        more.type = 'button';
+        more.onclick = () => {
+          box.classList.add('open');
+          box.replaceChildren(...list.map((s) => sourceChip(s, true)));
+        };
+        box.append(more);
+      }
+
+      // Builds one turn's skeleton: the question bubble, the answer area,
+      // and the sources row. Returns the pieces the sender fills in.
+      function turnView(question, askedAt) {
+        const t = el('div', 'turn');
+        t.append(el('div', 'q', question), el('div', 'when', fmtWhen(askedAt)));
+        const answer = el('div', 'a');
+        const sources = el('div', 'sources');
+        t.append(answer, sources);
+        $('#thread').append(t);
+        return { t, answer, sources };
+      }
+
+      // Runs fn, then keeps the scroll pinned to the bottom if the reader
+      // was already near it.
+      function stickToBottom(fn) {
+        const s = $('#scroll');
+        const near = s.scrollHeight - s.scrollTop - s.clientHeight < 120;
+        fn();
+        if (near) s.scrollTop = s.scrollHeight;
+      }
+
+      // ---------------------------------------------------------------
+      // Conversation history
+      // ---------------------------------------------------------------
+
+      function showEmpty() {
+        const e = el('div', 'empty');
+        e.append(
+          el('h1', '', 'What do you want to know?'),
+          el('div', '', 'I search the web, cite what I find, and remember what you asked and when.')
+        );
+        $('#thread').replaceChildren(e);
+      }
+
+      // Every /api call carries the access token when the server asks for one.
+      // On a 401 the page asks once, keeps the token, and retries.
+      const readToken = () => {
+        try {
+          return localStorage.getItem('token') || '';
+        } catch {
+          return '';
+        }
+      };
+      let token = readToken();
+
+      async function api(path, init = {}) {
+        for (let attempt = 0; ; attempt++) {
+          const headers = { ...init.headers, ...(token && { authorization: `Bearer ${token}` }) };
+          const res = await fetch(path, { ...init, headers });
+          if (res.status !== 401 || attempt) return res;
+          token = (prompt('Access token for this demo:') || '').trim();
+          try {
+            localStorage.setItem('token', token);
+          } catch {}
+        }
+      }
+
+      async function loadList() {
+        const list = await (await api('/api/conversations')).json();
+        $('#convs').replaceChildren(
+          ...list.map((c) => {
+            const a = el('a', c.id === conversationId ? 'on' : '', c.title || 'Untitled');
+            a.href = `#${c.id}`;
+            a.onclick = (e) => {
+              e.preventDefault();
+              openConversation(c.id);
+            };
+            return a;
+          })
+        );
+      }
+
+      async function openConversation(id) {
+        if (busy) return;
+        conversationId = id;
+        history.replaceState(null, '', id ? `#${id}` : location.pathname);
+        $('#thread').replaceChildren();
+
+        if (!id) {
+          showEmpty();
+          loadList();
+          return;
+        }
+
+        const turns = await (await api(`/api/conversations/${id}`)).json();
+        if (!turns.length) {
+          showEmpty();
+        }
+        for (const turn of turns) {
+          const v = turnView(turn.question, turn.asked_at);
+          const map = Object.fromEntries(turn.sources.map((s) => [s.n, s]));
+          v.answer.innerHTML = markdown(turn.answer || '', map);
+          const cited = new Set([...(turn.answer || '').matchAll(/\[(\d+)\]/g)].map((m) => +m[1]));
+          renderSources(
+            v.sources,
+            turn.sources.filter((s) => cited.has(s.n))
+          );
+        }
+        $('#scroll').scrollTop = $('#scroll').scrollHeight;
+        loadList();
+      }
+
+      // ---------------------------------------------------------------
+      // The work trail ("Searching… / Reading…") above a streaming answer
+      // ---------------------------------------------------------------
+
+      function trailView(container) {
+        const d = el('details', 'trail');
+        d.open = true;
+        const summary = el('summary', '', 'Working…');
+        const steps = el('div', 'steps');
+        d.append(summary, steps);
+        container.before(d);
+
+        let active = null;
+        let thinking = null;
+        let searches = 0;
+        let pages = 0;
+        const start = performance.now();
+        const secs = () => ((performance.now() - start) / 1000).toFixed(1);
+
+        // a live clock in the summary, so a quiet stretch never looks frozen
+        let clock;
+        const tick = () => {
+          clearInterval(clock);
+          const show = () => (summary.textContent = `Working… ${Math.floor(secs())}s`);
+          show();
+          clock = setInterval(show, 1000);
+        };
+
+        // a pulsing step from the first moment, replaced by the first real one
+        let placeholder = el('div', 'step active');
+        placeholder.append(el('div', '', 'Thinking…'));
+        steps.append(placeholder);
+        tick();
+
+        // ends the previous step and opens a new one
+        const step = (text) => {
+          placeholder?.remove();
+          placeholder = null;
+          if (active) active.classList.remove('active');
+          active = el('div', 'step active');
+          active.append(el('div', '', text));
+          steps.append(active);
+          thinking = null;
+          return active;
+        };
+
+        return {
+          thinking(text) {
+            if (!thinking) {
+              const s = step('');
+              const det = el('details');
+              det.append(el('summary', '', 'Thinking'), el('pre'));
+              s.firstChild.replaceWith(det);
+              thinking = det.querySelector('pre');
+            }
+            thinking.textContent += text;
+          },
+          search(e) {
+            searches++;
+            step(`Searching${e.since ? ` since ${e.since}` : ''}: ${e.queries.join(' · ')}`);
+          },
+          searchDone(e) {
+            const more = e.domains.length > 4 ? ` +${e.domains.length - 4}` : '';
+            active?.append(
+              el(
+                'div',
+                'sub',
+                e.results
+                  ? `${e.results} results from ${e.domains.slice(0, 4).join(', ')}${more}`
+                  : 'No results'
+              )
+            );
+          },
+          open(e) {
+            step(
+              `Reading ${e.urls.length} page${e.urls.length > 1 ? 's' : ''}${e.live ? ' (live)' : ''}`
+            ).append(el('div', 'sub', e.urls.map(host).join(', ')));
+          },
+          openDone(e) {
+            pages += e.ok;
+            if (e.failed) active?.append(el('div', 'sub', `${e.failed} failed to load`));
+          },
+          finish() {
+            clearInterval(clock);
+            placeholder?.remove();
+            placeholder = null;
+            if (active) active.classList.remove('active');
+            const bits = [];
+            if (searches) bits.push(`Searched ${searches === 1 ? 'once' : `${searches} times`}`);
+            if (pages) bits.push(`read ${pages} page${pages > 1 ? 's' : ''}`);
+            summary.textContent = bits.length
+              ? `${bits.join(', ')} · ${secs()}s`
+              : `Thought for ${secs()}s`;
+            if (!steps.children.length) d.remove();
+            d.open = false;
+          },
+          resume() {
+            if (!d.isConnected) container.before(d);
+            d.open = true;
+            tick();
+          },
+        };
+      }
+
+      // ---------------------------------------------------------------
+      // Sending a question and streaming the answer
+      // ---------------------------------------------------------------
+
+      async function send(message) {
+        const effort = $('#effort').value;
+        busy = true;
+        $('#send').disabled = true;
+        if ($('.empty')) $('#thread').replaceChildren();
+
+        const v = turnView(message, new Date().toISOString());
+        const trail = trailView(v.answer);
+
+        let text = '';
+        let map = {};
+        let answering = false;
+        v.answer.classList.add('cursor');
+
+        const paint = () =>
+          stickToBottom(() => {
+            v.answer.innerHTML = markdown(text, map);
+          });
+
+        // Routes each AgentEvent from the server to the right piece of UI.
+        const handle = (e) => {
+          switch (e.type) {
+            case 'start':
+              // first message in a fresh chat: adopt the conversation id
+              if (!conversationId) {
+                conversationId = e.conversationId;
+                history.replaceState(null, '', `#${e.conversationId}`);
+                loadList();
+              }
+              break;
+
+            case 'thinking':
+              trail.thinking(e.text);
+              break;
+
+            case 'search':
+              trail.search(e);
+              break;
+
+            case 'search_done':
+              trail.searchDone(e);
+              break;
+
+            case 'open':
+              trail.open(e);
+              break;
+
+            case 'open_done':
+              trail.openDone(e);
+              break;
+
+            case 'answer':
+              if (!answering) {
+                answering = true;
+                trail.finish();
+              }
+              text += e.text;
+              paint();
+              break;
+
+            case 'answer_reset':
+              // mid-stream narration got retracted; start the answer over
+              answering = false;
+              text = '';
+              paint();
+              trail.resume();
+              break;
+
+            case 'sources':
+              map = Object.fromEntries(e.sources.map((s) => [s.n, s]));
+              paint();
+              renderSources(v.sources, e.sources);
+              break;
+
+            case 'done':
+              v.t.append(el('div', 'meta', `${(e.ms / 1000).toFixed(1)}s · ${effort} effort`));
+              break;
+
+            case 'error':
+              v.t.append(el('div', 'error', `Something went wrong: ${e.message}`));
+              break;
+          }
+          stickToBottom(() => {});
+        };
+
+        try {
+          const res = await api('/api/chat', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ conversationId, message, tz, effort }),
+          });
+          if (!res.ok) throw new Error((await res.json()).error || res.statusText);
+
+          // SSE frames arrive as "data: {...}\n\n"; a chunk can split one,
+          // so the leftover tail is carried into the next round
+          const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+          let buf = '';
+          for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buf += value;
+            const frames = buf.split('\n\n');
+            buf = frames.pop();
+            for (const f of frames) {
+              if (f.startsWith('data: ')) handle(JSON.parse(f.slice(6)));
+            }
+          }
+        } catch (err) {
+          v.t.append(el('div', 'error', `Something went wrong: ${err.message}`));
+        } finally {
+          if (!answering) trail.finish();
+          v.answer.classList.remove('cursor');
+          busy = false;
+          $('#send').disabled = false;
+          loadList();
+          $('#input').focus();
+        }
+      }
+
+      // ---------------------------------------------------------------
+      // Composer wiring and startup
+      // ---------------------------------------------------------------
+
+      const input = $('#input');
+      input.addEventListener('input', () => {
+        input.style.height = 'auto';
+        input.style.height = `${input.scrollHeight}px`;
+      });
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+          e.preventDefault();
+          $('#composer').requestSubmit();
+        }
+      });
+      $('#composer').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const message = input.value.trim();
+        if (!message || busy) return;
+        input.value = '';
+        input.style.height = 'auto';
+        send(message);
+      });
+      try {
+        $('#effort').value = localStorage.getItem('effort') || 'low';
+      } catch {}
+      $('#effort').onchange = () => {
+        try {
+          localStorage.setItem('effort', $('#effort').value);
+        } catch {}
+      };
+      $('#new').onclick = () => openConversation(null);
+      openConversation(conversationId);
+    </script>
+  </body>
 </html>

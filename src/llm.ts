@@ -1,117 +1,241 @@
-export type ToolCall = { id: string; type: 'function'; function: { name: string; arguments: string }; extra_content?: unknown };
+import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createInterface } from 'node:readline';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { TOOL_SCHEMAS } from './tools.ts';
+
 export type Message =
-  | { role: 'system' | 'user'; content: string }
-  | { role: 'assistant'; content: string; tool_calls?: ToolCall[] }
-  | { role: 'tool'; tool_call_id: string; content: string };
-export type Chunk = { kind: 'reasoning' | 'content'; text: string } | { kind: 'tools'; calls: ToolCall[] };
-export type LLM = {
-  stream(body: Record<string, unknown>): AsyncIterable<Chunk>;
-  complete(body: Record<string, unknown>): Promise<any>;
+  | { role: 'system' | 'developer' | 'user'; content: string }
+  | { role: 'assistant'; content: string };
+
+export type ModelEvent = { kind: 'thinking' | 'text'; text: string } | { kind: 'tool' };
+
+export type CallTool = (name: string, args: Record<string, unknown>) => Promise<string>;
+
+export type Model = {
+  run(
+    messages: Message[],
+    callTool: CallTool,
+    opts?: { effort?: string; timeoutMs?: number; signal?: AbortSignal }
+  ): AsyncIterable<ModelEvent>;
+  json(messages: Message[], schema: object): Promise<any>;
 };
 
-export function reasoningSplitter() {
-  let buf = '';
-  let inside = false;
-  const tagFor = () => (inside ? '</reasoning>' : '<reasoning>');
+// ---------------------------------------------------------------------------
+// Prompt shape
+//
+// `claude -p` takes one system prompt and one user prompt. The developer
+// message becomes the system prompt; chat history is replayed as a transcript
+// above the current message.
+// ---------------------------------------------------------------------------
+export function flatten(messages: Message[]): { system: string; prompt: string } {
+  const system = messages.filter((m) => m.role === 'system' || m.role === 'developer');
+  const chat = messages.filter((m) => m.role === 'user' || m.role === 'assistant');
+  const current = chat.pop()?.content ?? '';
+  const history = chat
+    .map((m) => `${m.role === 'user' ? 'Person' : 'minimi'}: ${m.content}`)
+    .join('\n\n');
+  return {
+    system: system.map((m) => m.content).join('\n\n'),
+    prompt: history ? `Earlier in this chat:\n\n${history}\n\n---\n\n${current}` : current,
+  };
+}
 
-  function push(text: string): Chunk[] {
-    const out: Chunk[] = [];
-    const emit = (t: string) => t && out.push({ kind: inside ? 'reasoning' : 'content', text: t });
-    buf += text;
-    for (;;) {
-      const tag = tagFor();
-      const i = buf.indexOf(tag);
-      if (i >= 0) {
-        emit(buf.slice(0, i));
-        buf = buf.slice(i + tag.length);
-        inside = !inside;
-        continue;
+// Maps one line of `--output-format stream-json --include-partial-messages`
+// to what the agent loop cares about. The final `result` line ends the run.
+export function parseLine(line: string): ModelEvent | { kind: 'result'; error?: string } | null {
+  const e = JSON.parse(line);
+  if (e.type === 'result') {
+    return e.is_error
+      ? { kind: 'result', error: String(e.result || e.subtype) }
+      : { kind: 'result' };
+  }
+  if (e.type !== 'stream_event') return null;
+
+  const ev = e.event;
+  if (ev.type === 'content_block_start' && ev.content_block?.type === 'tool_use') {
+    return { kind: 'tool' };
+  }
+  if (ev.type === 'content_block_delta') {
+    if (ev.delta.type === 'text_delta') return { kind: 'text', text: ev.delta.text };
+    if (ev.delta.type === 'thinking_delta') return { kind: 'thinking', text: ev.delta.thinking };
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// MCP endpoint
+//
+// Claude Code reaches our tools over MCP's streamable HTTP transport. Each run
+// registers its tool handler under a random id, and the CLI is pointed at
+// /mcp/<id>, so tool calls land back in the turn that started the run.
+// Responses are plain JSON, which the transport allows.
+// ---------------------------------------------------------------------------
+const MCP_TOOLS = TOOL_SCHEMAS.map(({ function: f }) => ({
+  name: f.name,
+  description: f.description,
+  inputSchema: f.parameters,
+}));
+
+const runs = new Map<string, CallTool>();
+
+async function mcpResult(msg: any, callTool: CallTool): Promise<unknown> {
+  switch (msg.method) {
+    case 'initialize':
+      return {
+        protocolVersion: msg.params?.protocolVersion,
+        capabilities: { tools: {} },
+        serverInfo: { name: 'minimi', version: '3' },
+      };
+    case 'tools/list':
+      return { tools: MCP_TOOLS };
+    case 'tools/call': {
+      const text = await callTool(msg.params?.name, msg.params?.arguments ?? {});
+      return { content: [{ type: 'text', text }] };
+    }
+    case 'ping':
+      return {};
+  }
+  throw Object.assign(new Error(`Unknown method ${msg.method}`), { code: -32601 });
+}
+
+export async function handleMcp(req: IncomingMessage, res: ServerResponse, id: string) {
+  const callTool = runs.get(id);
+  if (!callTool) return res.writeHead(404).end();
+  if (req.method !== 'POST') return res.writeHead(405).end();
+
+  let raw = '';
+  for await (const chunk of req) raw += chunk;
+  const msg = JSON.parse(raw);
+  if (msg.id === undefined) return res.writeHead(202).end(); // a notification
+
+  const reply = (body: object) =>
+    res
+      .writeHead(200, { 'content-type': 'application/json' })
+      .end(JSON.stringify({ jsonrpc: '2.0', id: msg.id, ...body }));
+  try {
+    reply({ result: await mcpResult(msg, callTool) });
+  } catch (e) {
+    reply({ error: { code: (e as any).code ?? -32603, message: (e as Error).message } });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The model: one `claude -p` process per run, on the owner's subscription.
+//
+// Isolation: a dedicated CLAUDE_CONFIG_DIR, no setting sources, no built-in
+// tools, only our MCP server, and an empty working dir outside any project.
+// ---------------------------------------------------------------------------
+export function makeClaude(cfg: {
+  bin: string;
+  model: string;
+  effort: string;
+  configDir: string;
+  token: string;
+  mcpBase: string;
+  timeoutMs?: number;
+}): Model {
+  const workdir = join(tmpdir(), 'minimi-agent');
+  mkdirSync(workdir, { recursive: true });
+
+  const env: NodeJS.ProcessEnv = Object.fromEntries(
+    Object.entries(process.env).filter(([k]) => !/^(CLAUDE|ANTHROPIC)/.test(k))
+  );
+  env.CLAUDE_CONFIG_DIR = cfg.configDir;
+  env.CLAUDE_CODE_OAUTH_TOKEN = cfg.token;
+
+  const base = [
+    '-p',
+    '--strict-mcp-config',
+    '--setting-sources',
+    '',
+    '--no-session-persistence',
+    '--model',
+    cfg.model,
+  ];
+
+  // Spawns the CLI with the system prompt in a file (the ledger can outgrow a
+  // Windows command line) and the prompt on stdin, yielding stdout lines.
+  async function* exec(
+    messages: Message[],
+    args: string[],
+    opts: { effort?: string; timeoutMs?: number; signal?: AbortSignal } = {}
+  ): AsyncGenerator<string> {
+    const { system, prompt } = flatten(messages);
+    const sysFile = join(workdir, `${randomUUID()}.txt`);
+    writeFileSync(sysFile, system);
+
+    const effort = ['--effort', opts.effort ?? cfg.effort];
+    const p = spawn(cfg.bin, [...base, ...effort, '--system-prompt-file', sysFile, ...args], {
+      cwd: workdir,
+      env,
+      windowsHide: true,
+      signal: opts.signal,
+    });
+    const timer = setTimeout(() => p.kill(), opts.timeoutMs ?? cfg.timeoutMs ?? 120_000);
+    let stderr = '';
+    p.stderr.on('data', (d) => (stderr += d));
+    const exited = new Promise<number | null>((r) => p.on('close', r));
+    p.on('error', () => {}); // an abort surfaces as a null exit code instead
+    p.stdin.end(prompt);
+
+    try {
+      for await (const line of createInterface({ input: p.stdout })) if (line.trim()) yield line;
+      const code = await exited;
+      if (code !== 0) {
+        console.error(`claude exited ${code}: ${stderr.slice(0, 500)}`);
+        throw new Error(code === null ? 'The model timed out.' : 'The model process failed.');
       }
-      let keep = Math.min(buf.length, tag.length - 1);
-      while (keep > 0 && !tag.startsWith(buf.slice(-keep))) keep--;
-      emit(buf.slice(0, buf.length - keep));
-      buf = buf.slice(buf.length - keep);
-      return out;
-    }
-  }
-
-  function flush(): Chunk[] {
-    const out: Chunk[] = buf ? [{ kind: inside ? 'reasoning' : 'content', text: buf }] : [];
-    buf = '';
-    return out;
-  }
-
-  return { push, flush };
-}
-
-async function* sseData(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
-  let buf = '';
-  for await (const text of body.pipeThrough(new TextDecoderStream())) {
-    buf += text;
-    const lines = buf.split('\n');
-    buf = lines.pop()!;
-    for (const line of lines) {
-      if (!line.startsWith('data:')) continue;
-      const data = line.slice(5).trim();
-      if (data === '[DONE]') return;
-      if (data) yield data;
-    }
-  }
-}
-
-function callSlot(calls: ToolCall[], tc: { index?: number; id?: string }): number {
-  if (tc.index !== undefined) return tc.index;
-  if (!tc.id) return Math.max(calls.length - 1, 0);
-  const i = calls.findIndex((c) => c?.id === tc.id);
-  return i >= 0 ? i : calls.length;
-}
-
-export async function* parseStream(body: ReadableStream<Uint8Array>): AsyncGenerator<Chunk> {
-  const split = reasoningSplitter();
-  const calls: ToolCall[] = [];
-  for await (const data of sseData(body)) {
-    const delta = JSON.parse(data).choices?.[0]?.delta;
-    if (!delta) continue;
-    const reasoning = delta.reasoning_content ?? delta.reasoning;
-    if (reasoning) yield { kind: 'reasoning', text: reasoning };
-    if (delta.content) yield* split.push(delta.content);
-    for (const tc of delta.tool_calls ?? []) {
-      const c = (calls[callSlot(calls, tc)] ??= { id: '', type: 'function', function: { name: '', arguments: '' } });
-      if (tc.id) c.id = tc.id;
-      if (tc.extra_content) c.extra_content = tc.extra_content;
-      if (tc.function?.name) c.function.name += tc.function.name;
-      if (tc.function?.arguments) c.function.arguments += tc.function.arguments;
-    }
-  }
-  yield* split.flush();
-  if (calls.length) yield { kind: 'tools', calls: calls.filter(Boolean) };
-}
-
-export function makeLLM(cfg: { baseUrl: string; apiKey: string; model: string; effort: string }): LLM {
-  async function post(body: Record<string, unknown>): Promise<Response> {
-    for (let attempt = 0; ; attempt++) {
-      const res = await fetch(`${cfg.baseUrl.replace(/\/$/, '')}/chat/completions`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.apiKey}` },
-        body: JSON.stringify({ model: cfg.model, reasoning_effort: cfg.effort, ...body }),
-        signal: AbortSignal.timeout(120_000),
-      });
-      if (res.ok) return res;
-      if (attempt === 0 && (res.status === 429 || res.status >= 500)) {
-        await new Promise((r) => setTimeout(r, 1000));
-        continue;
-      }
-      throw new Error(`LLM ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    } finally {
+      clearTimeout(timer);
+      if (p.exitCode === null) p.kill();
+      rmSync(sysFile, { force: true });
     }
   }
 
   return {
-    async *stream(body) {
-      const res = await post({ ...body, stream: true });
-      yield* parseStream(res.body!);
+    async *run(messages, callTool, opts = {}) {
+      const id = randomUUID();
+      runs.set(id, callTool);
+      const mcp = { mcpServers: { minimi: { type: 'http', url: `${cfg.mcpBase}/mcp/${id}` } } };
+      const tools = MCP_TOOLS.map((t) => `mcp__minimi__${t.name}`);
+      try {
+        const args = [
+          ...['--output-format', 'stream-json', '--verbose', '--include-partial-messages'],
+          // -p defaults to display "omitted": thinking blocks arrive with empty text.
+          // Hidden flag, verified on 2.1.323.
+          ...['--thinking-display', 'summarized'],
+          ...['--tools', '', '--allowedTools', ...tools, '--mcp-config', JSON.stringify(mcp)],
+        ];
+        for await (const line of exec(messages, args, opts)) {
+          const ev = parseLine(line);
+          if (ev?.kind === 'result') {
+            if (ev.error) throw new Error(ev.error);
+          } else if (ev) yield ev;
+        }
+      } finally {
+        runs.delete(id);
+      }
     },
-    async complete(body) {
-      return (await post({ ...body, stream: false })).json();
+
+    async json(messages, schema) {
+      const args = [
+        '--output-format',
+        'json',
+        '--tools',
+        '',
+        '--json-schema',
+        JSON.stringify(schema),
+      ];
+      let out = '';
+      for await (const line of exec(messages, args)) out += line;
+      const res = JSON.parse(out);
+      if (res.is_error || !res.structured_output)
+        throw new Error(String(res.result || res.subtype));
+      return res.structured_output;
     },
   };
 }
