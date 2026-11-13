@@ -87,7 +87,8 @@ async function chat(req: IncomingMessage, res: ServerResponse) {
     typeof body.conversationId === 'string' && /^[\w-]{1,64}$/.test(body.conversationId)
       ? body.conversationId
       : undefined;
-  const effort = ['low', 'medium', 'high'].includes(body.effort) ? body.effort : undefined;
+  const efforts = ['low', 'medium', 'high'];
+  const effort = [body.effort, env('CLAUDE_EFFORT')].find((e) => efforts.includes(e));
 
   res.writeHead(200, {
     'content-type': 'text/event-stream',

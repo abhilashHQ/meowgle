@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { setImmediate as tick } from 'node:timers/promises';
 import { runTurn, cleanAnswer, type AgentEvent } from '../src/agent.ts';
+import { refersToPast } from '../src/prompt.ts';
 import { openDb, startTurn, finishTurn } from '../src/memory.ts';
 import type { Message, Model } from '../src/llm.ts';
 import type { Book, Tools } from '../src/tools.ts';
@@ -213,13 +214,7 @@ test('runTurn: tool rounds, streamed answer, persistence, live re-open, extracti
   );
   const { toolResults } = runs[0];
   assert.equal(toolResults.length, 2);
-  assert.ok(
-    toolResults.every((t) =>
-      t.endsWith(
-        'Reply only to: "Is that still right?". If the answer hangs on an exact figure that only a snippet or a third-party site gives, open the official page first.)'
-      )
-    )
-  );
+  assert.ok(toolResults.every((t) => t.endsWith('Reply only to: "Is that still right?".)')));
   assert.match(
     toolResults[0],
     /^\[1\] Neon pricing \(neon\.com, live\)[\s\S]*\(Today is Thu 12 Nov 2026\./
@@ -245,7 +240,31 @@ test('runTurn: tool rounds, streamed answer, persistence, live re-open, extracti
   );
 });
 
-test('runTurn: a question that does not refer to the past gets no saved findings', async () => {
+test('refersToPast: catches questions about history, ignores small talk and fresh lookups', () => {
+  for (const q of [
+    'what did i ask you about yesterday?',
+    'what did we talk about',
+    'have i ever asked about neon?',
+    'what were my questions this week',
+    'is that price still right?',
+    'anything new since monday',
+    'remember the laptop thing?',
+    'what did you tell me in our last chat',
+    'what have i been curious about lately',
+    'this week',
+  ])
+    assert.ok(refersToPast(q), q);
+  for (const q of [
+    'lol ok cool, long day today honestly',
+    'lol ok thanks, that was a lot',
+    'hey whats up',
+    'how much is cursor pro',
+    'kobo or kindle for library books?',
+  ])
+    assert.ok(!refersToPast(q), q);
+});
+
+test('runTurn: a question that does not refer to the past gets no log and no saved findings', async () => {
   const db = openDb(':memory:');
   const past = startTurn(db, {
     question: 'Neon pricing?',
@@ -266,13 +285,15 @@ test('runTurn: a question that does not refer to the past gets no saved findings
     { message: 'what does neon cost', tz: 'UTC' }
   ));
   assert.ok(runs[0].messages.every((m) => !/\$47|Saved findings from past/.test(m.content)));
+  assert.ok(runs[0].messages.every((m) => !m.content.includes('"Neon pricing?"')));
+  assert.match(runs[0].messages[0].content, /# Log of past questions: not attached/);
 });
 
 test('runTurn: tool calls past the budget are refused and effort reaches the model', async () => {
   const db = openDb(':memory:');
   const { model, runs } = fakeModel(
     [
-      ...Array.from({ length: 7 }, () => call('web_search', { queries: ['x'] })),
+      ...Array.from({ length: 8 }, () => call('web_search', { queries: ['x'] })),
       text('Best I can tell, x.'),
     ],
     { topic: 't', entities: [], claims: [] }
@@ -280,13 +301,16 @@ test('runTurn: tool calls past the budget are refused and effort reaches the mod
   const events: AgentEvent[] = [];
   for await (const e of runTurn(
     { db, model, tools: fakeTools().tools },
-    { message: 'q', tz: 'UTC', effort: 'high' }
+    { message: 'q', tz: 'UTC', effort: 'medium' }
   ))
     events.push(e);
-  assert.equal(runs[0].effort, 'high');
-  assert.equal(events.filter((e) => e.type === 'search').length, 5);
-  assert.match(runs[0].toolResults[5], /^No more lookups this turn/);
+  assert.equal(runs[0].effort, 'medium');
+  assert.equal(events.filter((e) => e.type === 'search').length, 6);
+  assert.match(runs[0].toolResults[4], /1 lookup left\./);
+  assert.match(runs[0].toolResults[5], /That was your last lookup/);
   assert.match(runs[0].toolResults[6], /^No more lookups this turn/);
+  assert.match(runs[0].toolResults[7], /^No more lookups this turn/);
+  assert.match(runs[0].messages.at(-1)!.content, /Effort is medium[\s\S]*up to 6 lookups/);
   assert.equal(events.at(-1)?.type, 'done');
 });
 

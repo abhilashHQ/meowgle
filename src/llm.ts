@@ -19,7 +19,7 @@ export type Model = {
   run(
     messages: Message[],
     callTool: CallTool,
-    opts?: { effort?: string; signal?: AbortSignal }
+    opts?: { effort?: string; timeoutMs?: number; signal?: AbortSignal }
   ): AsyncIterable<ModelEvent>;
   json(messages: Message[], schema: object): Promise<any>;
 };
@@ -162,7 +162,7 @@ export function makeClaude(cfg: {
   async function* exec(
     messages: Message[],
     args: string[],
-    opts: { effort?: string; signal?: AbortSignal } = {}
+    opts: { effort?: string; timeoutMs?: number; signal?: AbortSignal } = {}
   ): AsyncGenerator<string> {
     const { system, prompt } = flatten(messages);
     const sysFile = join(workdir, `${randomUUID()}.txt`);
@@ -175,7 +175,7 @@ export function makeClaude(cfg: {
       windowsHide: true,
       signal: opts.signal,
     });
-    const timer = setTimeout(() => p.kill(), cfg.timeoutMs ?? 120_000);
+    const timer = setTimeout(() => p.kill(), opts.timeoutMs ?? cfg.timeoutMs ?? 120_000);
     let stderr = '';
     p.stderr.on('data', (d) => (stderr += d));
     const exited = new Promise<number | null>((r) => p.on('close', r));
@@ -205,6 +205,9 @@ export function makeClaude(cfg: {
       try {
         const args = [
           ...['--output-format', 'stream-json', '--verbose', '--include-partial-messages'],
+          // -p defaults to display "omitted": thinking blocks arrive with empty text.
+          // Hidden flag, verified on 2.1.323.
+          ...['--thinking-display', 'summarized'],
           ...['--tools', '', '--allowedTools', ...tools, '--mcp-config', JSON.stringify(mcp)],
         ];
         for await (const line of exec(messages, args, opts)) {

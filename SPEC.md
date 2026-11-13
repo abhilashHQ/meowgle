@@ -115,7 +115,7 @@ Timeouts: 10s per Exa call. Retry once on 5xx or a network error. Never throw ou
    - `runTurn` hands the model a `callTool(name, args)` callback. The model registers it under a random run id and starts the CLI with `--mcp-config` pointing at `http://127.0.0.1:PORT/mcp/<id>`.
    - Tool calls arrive as MCP `tools/call` requests, run `web_search` / `open_page` in this process, and push `search` / `open` events into the same queue the model's stdout feeds. `runTurn` drains that queue, so tool progress streams while the CLI waits.
    - Every tool result ends with the tool footer (today's date, the question).
-   - At most 5 tool calls. Further calls get "No more lookups this turn. Answer now…" instead of running.
+   - Tool budget by effort (`EFFORT` in `prompt.ts`): low 3, medium 6, high 12. The effort brief and budget ride in the user message; each tool footer says how many lookups are left. Further calls get "No more lookups this turn. Answer now…" instead of running.
    - Text streamed before a tool call is narration: emit `answer_reset` if some of it was sent, re-emit it as `thinking`, and drop it from the answer.
    - When the client hangs up, the run is aborted and the CLI killed.
 4. Model events come from `--output-format stream-json --verbose --include-partial-messages`:
@@ -126,7 +126,7 @@ Timeouts: 10s per Exa call. Retry once on 5xx or a network error. Never throw ou
 7. Emit `done`.
 8. Fire `extractClaims(turnId)` without awaiting it.
 
-Process: one `claude -p` per turn, 120s timeout. Flags: `--strict-mcp-config --setting-sources "" --no-session-persistence --tools "" --allowedTools mcp__minimi__web_search mcp__minimi__open_page --model --effort`. The system prompt goes in a temp file (`--system-prompt-file`, the ledger can outgrow a Windows command line), the prompt on stdin. Env drops every inherited `CLAUDE*` / `ANTHROPIC*` var and sets `CLAUDE_CONFIG_DIR` and `CLAUDE_CODE_OAUTH_TOKEN`. Working dir is an empty folder under the OS temp dir, outside any project, so no CLAUDE.md is picked up. On Windows the binary is the native `claude.exe` behind npm's `.cmd` shim, spawned without a shell.
+Process: one `claude -p` per turn, timeout by effort (120s / 150s / 300s). Flags: `--strict-mcp-config --setting-sources "" --no-session-persistence --tools "" --allowedTools mcp__minimi__web_search mcp__minimi__open_page --model --effort --thinking-display summarized`. The last one is a hidden flag: `-p` otherwise sends `display: "omitted"`, so thinking blocks stream with empty text and the UI has nothing to show. The `showThinkingSummaries` setting does not help in `-p` mode. Thinking is adaptive, so easy turns and many low-effort turns have none. The system prompt goes in a temp file (`--system-prompt-file`, the ledger can outgrow a Windows command line), the prompt on stdin. Env drops every inherited `CLAUDE*` / `ANTHROPIC*` var and sets `CLAUDE_CONFIG_DIR` and `CLAUDE_CODE_OAUTH_TOKEN`. Working dir is an empty folder under the OS temp dir, outside any project, so no CLAUDE.md is picked up. On Windows the binary is the native `claude.exe` behind npm's `.cmd` shim, spawned without a shell.
 
 `--safe-mode` is not used: it disables MCP servers too, which removes our tools.
 
@@ -170,7 +170,7 @@ The instructions and ledger go in a `developer` message, which becomes the CLI's
      - If the date has nothing but a nearby date matches the topic, say so ("I have that on Sunday 8 Nov") and proceed.
      - If nothing matches, say so plainly and never invent what was discussed.
    - **Verification rules:** for "still correct / changed since" questions, open the stored source URLs (the harness forces a live crawl). Use `web_search` with `since` = the original date for news. Give every old claim one verdict: unchanged, changed (old to new, with citation), or couldn't verify (show the old value and its date). Never say unchanged without a page opened this turn. A `cached copy` page counts but must be named as such ("per a cached copy of their pricing page"). A `FAILED` page means search for that entity's pricing instead of giving up.
-2. **Ledger** (one system message): `renderLedger(db, tz)`, covering all turns from all chats, oldest first, one line each, in the user's tz:
+2. **Ledger** (one system message), attached only when `refersToPast(question)` matches, same gate as saved findings; otherwise a one-line "not attached" note. Always attaching it made the model mine it for small talk. `renderLedger(db, tz)`, covering all turns from all chats, oldest first, one line each, in the user's tz:
    `[Tue 10 Nov 2026 14:02] Asked: "<question, max 200 chars>" · Topic: Postgres hosting · Entities: Neon, Supabase · Neon Launch plan price $19/month (neon.com/pricing, fetched 10 Nov) · …`
    - If extraction never landed, the line is just date + question + source domains.
    - Over 30k chars, the oldest lines drop to date + question only.

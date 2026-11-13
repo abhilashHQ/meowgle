@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { CallTool, Message, Model, ModelEvent } from './llm.ts';
 import type { Book, Tools } from './tools.ts';
-import { buildMessages, refersToPast, toolFooter } from './prompt.ts';
+import { EFFORT, buildMessages, refersToPast, toolFooter, type Effort } from './prompt.ts';
 import {
   extractClaims,
   finishTurn,
@@ -16,9 +16,8 @@ import {
 
 export type Deps = { db: DatabaseSync; model: Model; tools: Tools; now?: () => Date };
 
-// A turn gets at most this many tool calls. Past that, tools answer with a
-// note telling the model to wrap up.
-const MAX_TOOL_CALLS = 5;
+// A turn gets at most EFFORT[effort].toolCalls tool calls. Past that, tools
+// answer with a note telling the model to wrap up.
 const OUT_OF_TOOLS =
   'No more lookups this turn. Answer now from what you already have, and say plainly what you could not confirm.';
 
@@ -186,17 +185,19 @@ function queue<T>() {
 // One user question, end to end:
 //   1. persist the turn and resolve the timezone
 //   2. build the opening messages (system, ledger, findings, history, question)
-//   3. run the model; it calls our tools over MCP, up to MAX_TOOL_CALLS
+//   3. run the model; it calls our tools over MCP, within the effort's budget
 //   4. clean up the answer, persist it with the sources it cited
 //   5. file findings into long-term memory in the background
 export async function* runTurn(
   deps: Deps,
-  req: { conversationId?: string; message: string; tz?: string; effort?: 'low' | 'medium' | 'high' }
+  req: { conversationId?: string; message: string; tz?: string; effort?: Effort }
 ): AsyncGenerator<AgentEvent> {
   const started = Date.now();
   const { db, model } = deps;
   const now = deps.now?.() ?? new Date();
   const tz = resolveTz(db, req.tz);
+  const effort = req.effort ?? 'low';
+  const budget = EFFORT[effort];
 
   // -- 1. persist the turn before any work starts
   const { conversationId, turnId } = startTurn(db, {
@@ -208,17 +209,18 @@ export async function* runTurn(
   yield { type: 'start', conversationId, turnId };
 
   // -- 2. opening context
+  const past = refersToPast(req.message);
   const messages: Message[] = buildMessages({
-    ledger: renderLedger(db, tz),
-    findings: refersToPast(req.message) ? renderFindings(db, tz) : '',
+    ledger: past ? renderLedger(db, tz) : undefined,
+    findings: past ? renderFindings(db, tz) : '',
     history: recentMessages(db, conversationId),
     now,
     tz,
     question: req.message,
+    effort,
   });
 
   // -- 3. the model run, with tool calls routed back here
-  const footer = toolFooter(now, tz, req.message);
   const book: Book = new Map(); // every source seen this turn, numbered
   const known = knownUrls(db);
   const valid = () => new Set([...book.values()].map((s) => s.n));
@@ -227,7 +229,8 @@ export async function* runTurn(
 
   let toolCalls = 0;
   const callTool: CallTool = async (name, args) => {
-    if (++toolCalls > MAX_TOOL_CALLS) return OUT_OF_TOOLS;
+    if (++toolCalls > budget.toolCalls) return OUT_OF_TOOLS;
+    const footer = toolFooter(now, tz, req.message, budget.toolCalls - toolCalls);
     const run = runTool(name, args, deps, book, known);
     for (;;) {
       const step = await run.next();
@@ -239,7 +242,8 @@ export async function* runTurn(
   let failure: string | undefined;
   (async () => {
     for await (const ev of model.run(messages, callTool, {
-      effort: req.effort,
+      effort,
+      timeoutMs: budget.timeoutMs,
       signal: stop.signal,
     }))
       q.push({ model: ev });
