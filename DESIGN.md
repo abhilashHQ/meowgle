@@ -1,6 +1,6 @@
 # Design
 
-minimi has one job: answer questions from the live web, and remember what you asked and when. Everything here is judged against three things. Fast, right, good to talk to.
+MeowGle has one job: answer questions from the live web, and remember what you asked and when. Everything here is judged against three things. Fast, right, good to talk to.
 
 ## The shape
 
@@ -48,7 +48,7 @@ Models are bad at date arithmetic. So every message opens with the user's local 
 
 ## The prompt
 
-One prompt, written as prose in the voice the replies should have. Earlier versions were stacks of rules with word counts and format bans, and every answer came out the same size and shape. Now the prompt explains what minimi is for and why each habit matters, and leaves length to the question. Hard rules are kept to what the app needs to work: tools, citation format, dates, memory.
+One prompt, written as prose in the voice the replies should have. Earlier versions were stacks of rules with word counts and format bans, and every answer came out the same size and shape. Now the prompt explains what MeowGle is for and why each habit matters, and leaves length to the question. Hard rules are kept to what the app needs to work: tools, citation format, dates, memory.
 
 ## Streaming and cleanup
 

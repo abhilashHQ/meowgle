@@ -38,7 +38,7 @@ export function flatten(messages: Message[]): { system: string; prompt: string }
   const current = chat.pop()?.content ?? '';
   const history = chat
     .map((m) => {
-      const tag = m.role === 'user' ? 'person' : 'minimi';
+      const tag = m.role === 'user' ? 'person' : 'meowgle';
       return `<${tag}>\n${m.content}\n</${tag}>`;
     })
     .join('\n');
@@ -92,7 +92,7 @@ async function mcpResult(msg: any, callTool: CallTool): Promise<unknown> {
       return {
         protocolVersion: msg.params?.protocolVersion,
         capabilities: { tools: {} },
-        serverInfo: { name: 'minimi', version: '3' },
+        serverInfo: { name: 'meowgle', version: '3' },
       };
     case 'tools/list':
       return { tools: MCP_TOOLS };
@@ -142,7 +142,7 @@ export function makeClaude(cfg: {
   mcpBase: string;
   timeoutMs?: number;
 }): Model {
-  const workdir = join(tmpdir(), 'minimi-agent');
+  const workdir = join(tmpdir(), 'meowgle');
   mkdirSync(workdir, { recursive: true });
 
   const env: NodeJS.ProcessEnv = Object.fromEntries(
@@ -204,8 +204,8 @@ export function makeClaude(cfg: {
     async *run(messages, callTool, opts = {}) {
       const id = randomUUID();
       runs.set(id, callTool);
-      const mcp = { mcpServers: { minimi: { type: 'http', url: `${cfg.mcpBase}/mcp/${id}` } } };
-      const tools = MCP_TOOLS.map((t) => `mcp__minimi__${t.name}`);
+      const mcp = { mcpServers: { meowgle: { type: 'http', url: `${cfg.mcpBase}/mcp/${id}` } } };
+      const tools = MCP_TOOLS.map((t) => `mcp__meowgle__${t.name}`);
       try {
         const args = [
           ...['--output-format', 'stream-json', '--verbose', '--include-partial-messages'],
