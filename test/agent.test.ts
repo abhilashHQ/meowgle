@@ -1,232 +1,167 @@
-import test from 'node:test';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { runTurn, type AgentEvent } from '../src/agent.js';
-import { openDb, getTurnsByConversation, type TurnRow } from '../src/db.js';
-import type { LLM } from '../src/llm/types.js';
-import type { SearchProvider, Source } from '../src/search/types.js';
+import { setImmediate as tick } from 'node:timers/promises';
+import { runTurn, cleanAnswer, type AgentEvent } from '../src/agent.ts';
+import { openDb, startTurn, finishTurn } from '../src/memory.ts';
+import type { Chunk, LLM } from '../src/llm.ts';
+import type { Book, Tools } from '../src/tools.ts';
 
-class AgentLLM implements LLM {
-  readonly kinds: string[] = [];
-
-  constructor(
-    private readonly planResponse: unknown,
-    private readonly claimsResponse: unknown,
-    private readonly tokens: string[],
-  ) {}
-
-  async json<T>(options: {
-    model: 'fast' | 'main';
-    system: string;
-    prompt: string;
-    schema: object;
-  }): Promise<T> {
-    if (JSON.stringify(options.schema).includes('recheckClaimIds')) {
-      this.kinds.push('plan');
-      return this.planResponse as T;
-    }
-    this.kinds.push('claims');
-    return this.claimsResponse as T;
-  }
-
-  async *stream(): AsyncGenerator<string> {
-    this.kinds.push('stream');
-    for (const token of this.tokens) yield token;
-  }
-}
-
-class AgentSearch implements SearchProvider {
-  readonly calls: { query: string; fresh: boolean; signal: AbortSignal }[] = [];
-
-  async search(
-    query: string,
-    options: { numResults: number; fresh: boolean; signal: AbortSignal },
-  ) {
-    this.calls.push({ query, fresh: options.fresh, signal: options.signal });
-    return [
-      {
-        url: 'https://supabase.com/pricing',
-        title: 'Supabase Pricing',
-        publishedDate: '2026-11-01',
-        excerpt: 'The free tier includes 500MB of database storage.',
-      },
-    ];
-  }
-}
-
-test('runTurn: emits stages in order and persists turns and claims', async () => {
-  const db = openDb(':memory:');
-  const llm = new AgentLLM(
-    {
-      level: 'quick',
-      queries: ['supabase pricing 2026'],
-      recheckClaimIds: [],
-      reason: 'needs current pricing',
-    },
-    {
-      claims: [
-        {
-          subject: 'Supabase pricing',
-          claim: 'Supabase free tier includes 500MB [S1].',
-          sourceId: 'S1',
-        },
-      ],
-    },
-    ['The free tier includes 500MB ', '[S1].'],
-  );
-  const search = new AgentSearch();
-
-  const events: AgentEvent[] = [];
-  for await (const event of runTurn(
-    { db, llm, search, now: () => new Date('2026-11-11T10:00:00Z') },
-    {
-      conversationId: 'c1',
-      message: 'What does Supabase cost today?',
-      tz: 'Asia/Kolkata',
-      level: 'auto',
-    },
-  )) {
-    events.push(event);
-  }
-
-  const labels = events.map((event) => (event.type === 'trace' ? `trace:${event.stage}` : event.type));
-  assert.deepEqual(
-    labels.filter((label) => label !== 'token'),
-    ['trace:recall', 'trace:plan', 'trace:search', 'sources', 'done'],
-  );
-  assert.equal(labels.filter((label) => label === 'token').length, 2);
-  assert.ok(labels.indexOf('sources') < labels.indexOf('token'));
-
-  const sourcesEvent = events.find((event) => event.type === 'sources');
-  assert.ok(sourcesEvent);
-  if (sourcesEvent?.type !== 'sources') throw new Error('missing sources event');
-  assert.equal(sourcesEvent.sources.length, 1);
-  assert.equal(sourcesEvent.sources[0].id, 'S1');
-  assert.equal(search.calls[0].query, 'supabase pricing 2026');
-  assert.equal(search.calls[0].fresh, true);
-
-  const doneEvent = events.find((event) => event.type === 'done');
-  assert.ok(doneEvent);
-  if (doneEvent?.type !== 'done') throw new Error('missing done event');
-  assert.deepEqual(doneEvent.citations, { valid: ['S1'], invalid: [] });
-  for (const key of ['recallMs', 'planMs', 'searchMs', 'firstTokenMs', 'totalMs'] as const) {
-    assert.equal(typeof doneEvent.timings[key], 'number');
-  }
-
-  const turns = getTurnsByConversation(db, 'c1');
-  assert.equal(turns.length, 2);
-  const [userTurn, assistantTurn] = turns as [TurnRow, TurnRow];
-  assert.equal(userTurn.role, 'user');
-  assert.equal(userTurn.content, 'What does Supabase cost today?');
-  assert.equal(userTurn.local_date, '2026-11-11');
-  assert.equal(userTurn.tz, 'Asia/Kolkata');
-
-  assert.equal(assistantTurn.role, 'assistant');
-  assert.equal(assistantTurn.content, 'The free tier includes 500MB [S1].');
-  assert.equal(assistantTurn.level, 'quick');
-  assert.equal(assistantTurn.local_date, '2026-11-11');
-  assert.ok(assistantTurn.trace_json);
-  const trace = JSON.parse(assistantTurn.trace_json) as Record<string, unknown>;
-  assert.ok(trace.recall);
-  assert.ok(trace.plan);
-  assert.ok(trace.search);
-  assert.ok(trace.citations);
-  assert.ok(trace.timings);
-
-  const claimRows = db.prepare('SELECT * FROM claims').all() as unknown as {
-    turn_id: number;
-    subject: string;
-    claim: string;
-    source_url: string;
-    source_title: string;
-    published_date: string;
-    fetched_at: string;
-  }[];
-  assert.equal(claimRows.length, 1);
-  assert.equal(claimRows[0].turn_id, assistantTurn.id);
-  assert.equal(claimRows[0].subject, 'Supabase pricing');
-  assert.equal(claimRows[0].source_url, 'https://supabase.com/pricing');
-  assert.equal(claimRows[0].source_title, 'Supabase Pricing');
-  assert.equal(claimRows[0].published_date, '2026-11-01');
-  assert.ok(claimRows[0].fetched_at);
-
-  assert.deepEqual(llm.kinds, ['plan', 'stream', 'claims']);
+test('cleanAnswer: gpt-oss markers become [n], unknown and repeated ones go, odd unicode is normalized', () => {
+  const raw = 'A 【3†L1-L2】​ b [2†source] c [9]. d [2][2]【2†x】 e %, non‑breaking';
+  assert.equal(cleanAnswer(raw, new Set([2, 3])), 'A [3] b [2] c. d [2] e %, non-breaking');
+  assert.equal(cleanAnswer('Views 19M [previous ledger]. See [Sources](https://x.y).', new Set()), 'Views 19M. See [Sources](https://x.y).');
 });
 
-test('runTurn: search failure notice is part of the saved answer', async () => {
-  const db = openDb(':memory:');
-  const llm = new AgentLLM(
-    {
-      level: 'quick',
-      queries: ['supabase pricing 2026'],
-      recheckClaimIds: [],
-      reason: 'needs current pricing',
+test('cleanAnswer: grouped citations split into [n], dropping unknown and repeated ones', () => {
+  assert.equal(cleanAnswer('A [7, 9]. B [2; 99]. C [3,3].', new Set([2, 3, 7, 9])), 'A [7][9]. B [2]. C [3].');
+});
+
+const call = (name: string, args: object): Chunk => ({
+  kind: 'tools',
+  calls: [{ id: `call_${name}`, type: 'function', function: { name, arguments: JSON.stringify(args) } }],
+});
+
+function fakeLLM(script: Chunk[][], extraction?: object) {
+  const bodies: any[] = [];
+  const llm: LLM = {
+    async *stream(body) {
+      bodies.push(structuredClone(body));
+      yield* script[bodies.length - 1] ?? script.at(-1)!;
     },
-    { claims: [] },
-    ['I do not have current pricing. ', 'From memory, the free tier was 500MB [S1].'],
-  );
-  const search: SearchProvider = {
-    async search() {
-      throw new Error('offline');
+    async complete() {
+      return { choices: [{ message: { tool_calls: [{ function: { name: 'save_memory', arguments: JSON.stringify(extraction) } }] } }] };
     },
   };
+  return { llm, bodies };
+}
+
+const add = (book: Book, url: string, title: string, opened: boolean, text = '') =>
+  book.set(url, { n: book.size + 1, url, title, fetched_at: '2026-11-12T11:10:00.000Z', opened, text });
+
+function fakeTools() {
+  const seen: { live?: boolean } = {};
+  const tools: Tools = {
+    async openPage({ urls }, book, live) {
+      seen.live = live;
+      add(book, urls[0], 'Neon pricing', true, 'Launch $19/month');
+      return { text: '[1] Neon pricing (neon.com, live)\nLaunch $19/month', ok: 1, failed: 0, domains: [] };
+    },
+    async webSearch(_args, book) {
+      add(book, 'https://neon.com/blog/news', 'Neon news', false);
+      add(book, 'https://example.com/roundup', 'Roundup', false);
+      return { text: '[2] Neon news\n...\n\n[3] Roundup\n...', ok: 2, failed: 0, domains: ['neon.com', 'example.com'] };
+    },
+  };
+  return { tools, seen };
+}
+
+test('runTurn: tool rounds, streamed answer, persistence, live re-open, extraction', async () => {
+  const db = openDb(':memory:');
+  const past = startTurn(db, { question: 'Neon pricing?', tz: 'Asia/Kolkata', askedAt: '2026-11-10T08:32:00.000Z' });
+  finishTurn(db, past.turnId, 'Neon Launch is $19/month [1].', [{ n: 1, url: 'https://neon.com/pricing', title: 'Neon', fetched_at: '2026-11-10T08:32:00.000Z' }]);
+  db.prepare("INSERT INTO claims (turn_id, entity, fact, value, source_url, fetched_at) VALUES (?, 'Neon', 'Launch price', '$19/month', 'https://neon.com/pricing', '2026-11-10T08:32:00.000Z')").run(past.turnId);
+
+  const { llm, bodies } = fakeLLM([
+    [{ kind: 'reasoning', text: 'Re-open the stored page.' }, call('open_page', { urls: ['https://neon.com/pricing'], focus: 'Launch price' })],
+    [call('web_search', { queries: ['Neon pricing change'], since: '2026-11-10' })],
+    [
+      { kind: 'content', text: '\nStill $19/month 【' },
+      { kind: 'content', text: '1†L3-L5】 per Neon [2], nothing new [7].' },
+    ],
+  ], { topic: 'Neon pricing', entities: ['Neon'], claims: [{ entity: 'Neon', fact: 'Launch price', value: '$19/month', source_url: 'https://neon.com/pricing' }] });
+  const { tools, seen } = fakeTools();
 
   const events: AgentEvent[] = [];
-  for await (const event of runTurn(
-    { db, llm, search, now: () => new Date('2026-11-11T10:00:00Z') },
-    {
-      conversationId: 'c1',
-      message: 'What does Supabase cost today?',
-      tz: 'Asia/Kolkata',
-      level: 'auto',
-    },
-  )) {
-    events.push(event);
-  }
+  for await (const e of runTurn({ db, llm, tools, now: () => new Date('2026-11-12T11:10:00Z') }, { message: 'Is that still right?', tz: 'Asia/Kolkata' })) events.push(e);
 
-  const streamed = events
-    .filter((event): event is { type: 'token'; text: string } => event.type === 'token')
-    .map((event) => event.text)
-    .join('');
-  assert.match(streamed, /^Web search failed/);
+  assert.deepEqual([...new Set(events.map((e) => e.type))], ['start', 'thinking', 'open', 'open_done', 'search', 'search_done', 'answer', 'sources', 'done']);
+  const answer = events.flatMap((e) => (e.type === 'answer' ? [e.text] : [])).join('');
+  assert.equal(answer, 'Still $19/month [1] per Neon [2], nothing new.');
+  assert.equal(seen.live, true);
+  assert.deepEqual(events.find((e) => e.type === 'search'), { type: 'search', queries: ['Neon pricing change'], since: '2026-11-10' });
+  assert.deepEqual(events.find((e) => e.type === 'sources'), { type: 'sources', sources: [
+    { n: 1, url: 'https://neon.com/pricing', title: 'Neon pricing' },
+    { n: 2, url: 'https://neon.com/blog/news', title: 'Neon news' },
+  ] });
 
-  const turns = getTurnsByConversation(db, 'c1');
-  assert.equal(turns.length, 2);
-  assert.equal(turns[1].role, 'assistant');
-  assert.equal(turns[1].content, streamed);
+  assert.equal(bodies.length, 3);
+  assert.match(bodies[0].messages[0].content, /\] "Neon pricing\?"/);
+  assert.doesNotMatch(bodies[0].messages[0].content.split('# Log of past questions')[1], /\$19/);
+  const tail = bodies[0].messages.at(-1).content;
+  assert.match(tail, /^Now: Thu 12 Nov 2026 16:40 \(Asia\/Kolkata\)\nLast 14 days:\nThu 12 Nov = 2026-11-12 \(today\)/);
+  assert.match(tail, /Saved findings[\s\S]*- Neon \| Launch price: \$19\/month \(as of 10 Nov, https:\/\/neon\.com\/pricing\)\n\nIs that still right\?\n\n\(Reply to this message only/);
+  const toolMsgs = bodies[2].messages.filter((m: any) => m.role === 'tool');
+  assert.equal(toolMsgs.length, 2);
+  assert.ok(toolMsgs.every((m: any) => m.content.endsWith('reply only to: "Is that still right?". Plain paragraphs, cite as [n], no bold, headers, label bullets or closing summary.)')));
+  assert.match(toolMsgs[0].content, /\(Today is Thu 12 Nov 2026\./);
 
-  const done = events.find((event) => event.type === 'done');
-  assert.ok(done);
-  if (done?.type !== 'done') throw new Error('missing done event');
-  assert.deepEqual(done.citations, { valid: [], invalid: ['S1'] });
+  const row = db.prepare('SELECT answer, sources FROM turns WHERE id = 2').get() as { answer: string; sources: string };
+  assert.equal(row.answer, answer);
+  assert.deepEqual(JSON.parse(row.sources).map((s: any) => s.url), ['https://neon.com/pricing', 'https://neon.com/blog/news']);
+
+  await tick();
+  await tick();
+  const turn = db.prepare('SELECT topic FROM turns WHERE id = 2').get() as { topic: string };
+  assert.equal(turn.topic, 'Neon pricing');
+  assert.equal((db.prepare('SELECT count(*) AS n FROM claims WHERE turn_id = 2').get() as { n: number }).n, 1);
 });
 
-test('runTurn: instant plans skip search and still persist the assistant turn', async () => {
+test('runTurn: a question that does not refer to the past gets no saved findings', async () => {
   const db = openDb(':memory:');
-  const llm = new AgentLLM(
-    {
-      level: 'instant',
-      queries: [],
-      recheckClaimIds: [],
-      reason: 'greeting',
-    },
-    { claims: [] },
-    ['hey there'],
-  );
-  const search = new AgentSearch();
+  const past = startTurn(db, { question: 'Neon pricing?', tz: 'UTC', askedAt: '2026-11-10T08:32:00.000Z' });
+  finishTurn(db, past.turnId, 'Neon Launch is $47/month [1].', []);
+  db.prepare("INSERT INTO claims (turn_id, entity, fact, value, source_url, fetched_at) VALUES (?, 'Neon', 'Launch price', '$47/month', 'https://neon.com/pricing', '2026-11-10T08:32:00.000Z')").run(past.turnId);
+  const { llm, bodies } = fakeLLM([[{ kind: 'content', text: 'Hi.' }]], { topic: 't', entities: [], claims: [] });
+  for await (const _ of runTurn({ db, llm, tools: fakeTools().tools }, { message: 'what does neon cost', tz: 'UTC' }));
+  assert.ok(bodies[0].messages.every((m: any) => !/\$47|Saved findings from past/.test(m.content)));
+});
 
+test('runTurn: the sixth call drops tools and tool history, and its tool calls are ignored', async () => {
+  const db = openDb(':memory:');
+  const { llm, bodies } = fakeLLM([
+    ...Array.from({ length: 5 }, () => [call('web_search', { queries: ['x'] })]),
+    [{ kind: 'content', text: 'Best I can tell, x.' }, call('web_search', { queries: ['y'] })],
+  ], { topic: 't', entities: [], claims: [] });
   const events: AgentEvent[] = [];
-  for await (const event of runTurn(
-    { db, llm, search, now: () => new Date('2026-11-11T10:00:00Z') },
-    { conversationId: 'c1', message: 'hey', tz: 'Asia/Kolkata', level: 'auto' },
-  )) {
-    events.push(event);
-  }
+  for await (const e of runTurn({ db, llm, tools: fakeTools().tools }, { message: 'q', tz: 'UTC', effort: 'high' })) events.push(e);
+  assert.equal(bodies.length, 6);
+  assert.ok(bodies.every((b) => b.reasoning_effort === 'high'));
+  assert.ok(bodies.slice(0, 5).every((b) => b.tools));
+  assert.equal(bodies[5].tools, undefined);
+  assert.ok(bodies[5].messages.every((m: any) => m.role !== 'tool' && !m.tool_calls));
+  assert.match(bodies[5].messages.at(-1).content, /^Your research for this question is finished[\s\S]*\[2\] Neon news/);
+  assert.equal(events.filter((e) => e.type === 'search').length, 5);
+  assert.equal(events.at(-1)?.type, 'done');
+});
 
-  const labels = events.map((event) => (event.type === 'trace' ? `trace:${event.stage}` : event.type));
-  assert.deepEqual(labels, ['trace:recall', 'trace:plan', 'token', 'done']);
-  assert.equal(search.calls.length, 0);
+test('runTurn: narration streamed before a tool call is retracted into thinking, not stored as the answer', async () => {
+  const db = openDb(':memory:');
+  const { llm } = fakeLLM([
+    [{ kind: 'content', text: "I'll look up Neon pricing. " }, call('web_search', { queries: ['neon pricing'] })],
+    [{ kind: 'content', text: 'Neon Launch is usage-based [1].' }],
+  ], { topic: 't', entities: [], claims: [] });
+  const events: AgentEvent[] = [];
+  for await (const e of runTurn({ db, llm, tools: fakeTools().tools }, { message: 'neon price?', tz: 'UTC' })) events.push(e);
+  const types = events.map((e) => e.type);
+  const reset = types.indexOf('answer_reset');
+  assert.ok(reset > types.indexOf('answer') && reset < types.indexOf('search'));
+  assert.deepEqual(events[reset + 1], { type: 'thinking', text: "I'll look up Neon pricing. " });
+  const answer = events.slice(reset).flatMap((e) => (e.type === 'answer' ? [e.text] : [])).join('');
+  assert.equal(answer, 'Neon Launch is usage-based [1].');
+  assert.equal((db.prepare('SELECT answer FROM turns').get() as { answer: string }).answer, answer);
+});
 
-  const turns = getTurnsByConversation(db, 'c1');
-  assert.equal(turns.length, 2);
-  assert.equal(turns[1].level, 'instant');
+test('runTurn: an LLM failure emits error and keeps the partial answer', async () => {
+  const db = openDb(':memory:');
+  const llm: LLM = {
+    async *stream() {
+      yield { kind: 'content', text: 'Partial' };
+      throw new Error('LLM 500: boom');
+    },
+    async complete() {},
+  };
+  const events: AgentEvent[] = [];
+  for await (const e of runTurn({ db, llm, tools: fakeTools().tools }, { message: 'q', tz: 'UTC' })) events.push(e);
+  assert.deepEqual(events.at(-1), { type: 'error', message: 'LLM 500: boom' });
+  assert.equal((db.prepare('SELECT answer FROM turns').get() as { answer: string }).answer, 'Partial');
 });
