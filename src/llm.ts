@@ -28,19 +28,23 @@ export type Model = {
 // Prompt shape
 //
 // `claude -p` takes one system prompt and one user prompt. The developer
-// message becomes the system prompt; chat history is replayed as a transcript
-// above the current message.
+// message becomes the system prompt; chat history is replayed inside a tagged
+// block above the current message, so it can't be mistaken for the message
+// being answered.
 // ---------------------------------------------------------------------------
 export function flatten(messages: Message[]): { system: string; prompt: string } {
   const system = messages.filter((m) => m.role === 'system' || m.role === 'developer');
   const chat = messages.filter((m) => m.role === 'user' || m.role === 'assistant');
   const current = chat.pop()?.content ?? '';
   const history = chat
-    .map((m) => `${m.role === 'user' ? 'Person' : 'minimi'}: ${m.content}`)
-    .join('\n\n');
+    .map((m) => {
+      const tag = m.role === 'user' ? 'person' : 'minimi';
+      return `<${tag}>\n${m.content}\n</${tag}>`;
+    })
+    .join('\n');
   return {
     system: system.map((m) => m.content).join('\n\n'),
-    prompt: history ? `Earlier in this chat:\n\n${history}\n\n---\n\n${current}` : current,
+    prompt: history ? `<earlier_chat>\n${history}\n</earlier_chat>\n\n${current}` : current,
   };
 }
 

@@ -42,7 +42,7 @@ const port = Number(env('PORT', '3000'));
 const db = openDb(env('DB_PATH', 'data/minimi.db'));
 const model = makeClaude({
   bin: claudeBin(),
-  model: env('CLAUDE_MODEL', 'sonnet'),
+  model: env('CLAUDE_MODEL', 'claude-opus-5-5'),
   effort: env('CLAUDE_EFFORT', 'low'),
   configDir: env('CLAUDE_CONFIG_DIR'),
   token: env('CLAUDE_CODE_OAUTH_TOKEN'),
