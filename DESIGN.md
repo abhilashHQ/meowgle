@@ -2,7 +2,17 @@
 
 MeowGle is a chat agent with one tool, web search. It remembers what you asked, what it answered, and when. I built it against the brief's three goals: answer fast, get it right, be good to talk to.
 
+## The big picture
+
+![MeowGle's parts as roles: the chat page, a front desk, a coordinator, Claude, web search, a notebook of past chats, and a filing clerk that writes to it after each answer](docs/img/overview.svg)
+
+You ask on the chat page. The coordinator pulls what MeowGle remembers and hands it to Claude with your question. Claude searches the web until it can answer. Once the answer is out, a filing clerk writes down what's worth keeping, and code checks every line before it lands in the notebook.
+
+To edit the picture, open [docs/overview.excalidraw](docs/overview.excalidraw) on excalidraw.com.
+
 ## Architecture
+
+The same flow with the real call paths:
 
 ```mermaid
 flowchart LR
